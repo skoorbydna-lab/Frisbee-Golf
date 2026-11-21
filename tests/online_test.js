@@ -27,7 +27,7 @@ function device(label, store){
     addEventListener(t,f){ (this.h[t]=this.h[t]||[]).push(f); } fire(t,e){ (this.h[t]||[]).forEach(f=>f(e||{preventDefault(){}})); } getContext(){ return stub('ctx'); } setPointerCapture(){} appendChild(c){ this.children.push(c); } querySelectorAll(){ return []; } }
   const els = new Proxy({}, {get:(t,p)=>t[p]||(t[p]=new FakeEl(p))}), timers = []; let raf = null, now = 0;
   const ctx = { Core, THREE: makeTHREE(), console, Math, Date, JSON, Object, Array, String, Number, Map, Set, Promise, Proxy, Symbol, Float32Array, Uint8Array, Infinity, NaN, isNaN, parseInt,
-    document:{ addEventListener(){}, getElementById:id=>els[id]||(els[id]=new FakeEl(id)), createElement:t=>new FakeEl(t), querySelectorAll:()=>[], fonts:undefined },
+    document:{ body:{classList:{contains:()=>false,toggle(){}}}, addEventListener(){}, getElementById:id=>els[id]||(els[id]=new FakeEl(id)), createElement:t=>new FakeEl(t), querySelectorAll:()=>[], fonts:undefined },
     devicePixelRatio:3, innerWidth:390, innerHeight:844, addEventListener(){}, requestAnimationFrame:cb=>{raf=cb;}, setTimeout:(cb,ms)=>{ const o={cb,due:now+(ms||0)}; timers.push(o); return o; }, clearTimeout:o=>{ const i=timers.indexOf(o); if(i>=0) timers.splice(i,1); }, URLSearchParams, history:{replaceState(){}},
     performance:{now:()=>now}, localStorage:{getItem:k=>k in store ? store[k] : null, setItem:(k,v)=>{store[k]=String(v);}, removeItem:k=>{delete store[k];}}, navigator:{}, location:{reload(){}, search:'', origin:'https://x', pathname:'/'} };
   ctx.window = ctx; ctx.mqtt = fakeMqtt;

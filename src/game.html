@@ -63,6 +63,7 @@
   #statsCard .sbar{display:inline-block;width:70px;height:8px;border:2px solid var(--ink);border-radius:6px;overflow:hidden;background:#fff;vertical-align:middle}
   #statsCard .sbar i{display:block;height:100%}
   #statsCard .stip{margin-top:4px;padding-top:4px;border-top:2px dashed rgba(20,32,43,.3);font-weight:600}
+  body.busy #discRow, body.busy #rangeRow, body.busy #hint{display:none!important}
   .hidden{display:none!important}
   input.name{width:100%;margin:4px 0;padding:8px 10px;border:3px solid var(--ink);border-radius:12px;font:600 16px 'Fredoka',sans-serif;-webkit-user-select:text;user-select:text;background:#fff}
   .pdot{display:inline-block;width:12px;height:12px;border-radius:50%;border:2px solid var(--ink);vertical-align:-1px;margin-right:4px}
@@ -488,7 +489,7 @@ let W = null;            // physics world for the current hole
 let course = null;       // {group, tee, sock}
 function groundAt(x, z){ return W ? W.T(x, z).h : 0; }
 
-const TCOL = REAL ? {fair:'#93c95a', green:'#d2f77e', grass:'#47712a', out:'#47712a', forest:'#3b5a24', stone:'#8a9264', sand:'#d8c79a', concrete:'#a9a69f', rock:'#a97f58', canyonfloor:'#c9a97c', water:'#5f7a52', gorge:'#6e655a'} : {fair:'#a8e06c', green:'#e2ff94', grass:'#559433', out:'#559433', forest:'#467030', stone:'#94a26c', sand:'#ecd9a4', concrete:'#bdbab2',
+const TCOL = REAL ? {fair:'#2f6a24', green:'#d2f77e', grass:'#7f8f40', out:'#7f8f40', forest:'#4d5e2a', stone:'#8a9264', sand:'#d8c79a', concrete:'#a9a69f', rock:'#a97f58', canyonfloor:'#c9a97c', water:'#5f7a52', gorge:'#6e655a'} : {fair:'#3f8f2e', green:'#e2ff94', grass:'#9aae4c', out:'#9aae4c', forest:'#5d7a34', stone:'#94a26c', sand:'#ecd9a4', concrete:'#bdbab2',
               rock:'#bb8a5d', canyonfloor:'#dcbc8b', water:'#6f8a62', gorge:'#7b6f62'};
 function buildTerrain(group){
   const H = W.H, b = W.bounds, margin = H.sea ? 80 : 230;
@@ -513,7 +514,7 @@ function buildTerrain(group){
     if(t==='forest' && C.fbm(x*0.15, z*0.15) > 0.58) c.lerp(brown, 0.55);
     let dbk = 1e9; for(const b of W.baskets){ const e = Math.hypot(x - b.x, z - b.z); if(e < dbk) dbk = e; }
     if(t==='green'){ c.multiplyScalar(Math.floor(dbk/2.5) % 2 ? 0.94 : 1.03); }                                        // mowing rings
-    else if(dbk < 12 && t!=='water' && t!=='sand' && t!=='rock' && t!=='gorge') c.set(REAL ? '#30521b' : '#3f7424');   // dark collar
+    else if(dbk < 12 && t!=='water' && t!=='sand' && t!=='rock' && t!=='gorge') c.set(REAL ? '#22501a' : '#2f7222');   // dark collar
     else if(t==='fair'){ const st = Math.sin(x*0.55 + z*0.12) > 0 ? 1.05 : 0.95; c.multiplyScalar(st); }                // fairway mowing stripes
     if(!H.sea && (slope > 0.85 || t==='rock' || t==='gorge') && t!=='concrete'){
       c.copy(rockC); if(t==='gorge' && h < -18) c.multiplyScalar(0.8);
@@ -529,7 +530,7 @@ function buildTerrain(group){
   if(REAL) detailTex.repeat.set((x1-x0)/3.2, (z1-z0)/3.2);
   const m = new THREE.Mesh(g, matTerrain); m.receiveShadow = true; m.castShadow = (H.theme==='gorge'||H.theme==='canyon'); group.add(m);
   // big apron beyond the terrain
-  if(!H.sea){ const ap = new THREE.Mesh(new THREE.RingGeometry(Math.max(x1-x0, z1-z0)*0.45, 2600, 48, 1), toon('#5ea140')); ap.rotation.x = -Math.PI/2; ap.position.set((x0+x1)/2, H.base - 1.2, (z0+z1)/2); group.add(ap); }
+  if(!H.sea){ const ap = new THREE.Mesh(new THREE.RingGeometry(Math.max(x1-x0, z1-z0)*0.45, 2600, 48, 1), toon(REAL ? '#7a8a3e' : '#93a84a')); ap.rotation.x = -Math.PI/2; ap.position.set((x0+x1)/2, H.base - 1.2, (z0+z1)/2); group.add(ap); }
   if(H.water != null){
     const wg = H.sea ? new THREE.PlaneGeometry(5200, 5200) : new THREE.PlaneGeometry(x1-x0, z1-z0);
     const wm = new THREE.Mesh(wg, H.sea ? seaMat : pondMat); wm.rotation.x = -Math.PI/2; wm.position.set(H.sea ? 0 : (x0+x1)/2, H.water, H.sea ? -80 : (z0+z1)/2); group.add(wm);
@@ -724,7 +725,7 @@ function buildHole(i){
     const fgeo = new THREE.IcosahedronGeometry(0.09, 0); fgeo.translate(0, 0.14, 0);
     const NF = 500, flowers = new THREE.InstancedMesh(fgeo, new THREE.MeshBasicMaterial({color:'#ffffff'}), NF);
     const d = new THREE.Object3D(), fc = new THREE.Color(); let nt = 0, nf = 0;
-    const gcol = REAL ? (H.theme==='forest' ? ['#3b5a26','#47672c','#536f33'] : H.theme==='canyon' ? ['#8f8a4f','#7d8545','#9c915c'] : ['#3c6322','#456e28','#52782e']) : H.theme==='forest' ? ['#3f6e2c','#4d7d34','#5b8a3a'] : H.theme==='canyon' ? ['#a9a35a','#8f9a4d','#b8a96a'] : ['#4e9a35','#5aa63c','#448c2e'];
+    const gcol = REAL ? (H.theme==='forest' ? ['#3b5a26','#47672c','#536f33'] : H.theme==='canyon' ? ['#8f8a4f','#7d8545','#9c915c'] : ['#7a8a3a','#6f8034','#869442']) : H.theme==='forest' ? ['#3f6e2c','#4d7d34','#5b8a3a'] : H.theme==='canyon' ? ['#a9a35a','#8f9a4d','#b8a96a'] : ['#4e9a35','#5aa63c','#448c2e'];
     const flowery = ['meadow','pond','hill','sea','downs'].includes(H.theme);
     for(let k=0;k<(REAL ? 40000 : 20000) && (nt<NT || nf<NF);k++){
       const x = W.bounds.minX - 20 + r()*(W.bounds.maxX-W.bounds.minX+40), z = W.bounds.minZ - 25 + r()*(W.bounds.maxZ-W.bounds.minZ+45);
@@ -783,7 +784,7 @@ function drawMapStatic(){
   const s = Math.min((Wd-2*pad)/(b.maxX-b.minX), (Hd-2*pad)/(b.maxZ-b.minZ)), cx = (b.minX+b.maxX)/2, cz = (b.minZ+b.maxZ)/2;
   mapTf = {s, d, f:(x,z)=>[Wd/2 + (x-cx)*s, Hd/2 + (z-cz)*s]};
   const g = mapStatic.getContext('2d'), img = g.createImageData(Wd, Hd), col = new THREE.Color();
-  const MC = {fair:'#a8e06c', green:'#eaffa0', grass:'#4a8a30', out:'#4a8a30', forest:'#35602a', stone:'#7f925c', sand:'#ecd9a4', concrete:'#c8c5bd', rock:'#a07750', canyonfloor:'#d9b98a', water:'#3fa4e8', gorge:'#3a3029'};
+  const MC = {fair:'#2f7a26', green:'#eaffa0', grass:'#8a9a48', out:'#8a9a48', forest:'#4d5e2a', stone:'#7f925c', sand:'#ecd9a4', concrete:'#c8c5bd', rock:'#a07750', canyonfloor:'#d9b98a', water:'#3fa4e8', gorge:'#3a3029'};
   for(let py=0; py<Hd; py+=1) for(let px=0; px<Wd; px+=1){
     const x = cx + (px - Wd/2)/s, z = cz + (py - Hd/2)/s, t = W.T(x, z);
     col.set(MC[t.type] || MC.grass); const k = (py*Wd + px)*4;
@@ -904,7 +905,7 @@ function updateHUD(){
     $('holeName').textContent = 'Driving Range';
     $('holeMeta').textContent = `Throw ${range.n + 1} · ${C.DISCS[discKey].name}`;
     const b = range.best, f = k=>b[k] ? `${b[k].toFixed(0)} m` : '–';
-    $('dist').textContent = `Best · Driver ${f('driver')} · Mid ${f('mid')} · Putter ${f('putter')}`;
+    $('dist').innerHTML = (range.longest ? `<b>🏆 Longest: ${range.longest.d.toFixed(0)} m</b> (${C.DISCS[range.longest.disc].name})<br>` : '') + `Best · Driver ${f('driver')} · Mid ${f('mid')} · Putter ${f('putter')}`;
     return;
   }
   const H = C.HOLES[holeIdx];
@@ -1180,7 +1181,11 @@ function showStats(kind){
     <div class="stip">💡 ${flickTip(L, R)}</div>`;
   $('statsCard').classList.remove('hidden');
   statsTimer = mode==='range' ? 0 : 5;
-  if(mode==='range' && kind!=='ob'){ const k = L.disc; if(!range.best[k] || total > range.best[k]) range.best[k] = total; }
+  if(mode==='range' && kind!=='ob' && (!range.longest || total > range.longest.d)){
+    range.longest = {d:total, disc:L.disc, x:end.x, z:end.z};
+    placeLongFlag(); if(range.n > 0) setTimeout(()=>flash(`New longest throw! 🏆<br><span style="font-size:20px">${total.toFixed(0)} m</span>`, 1.6), 1300);
+  }
+  if(mode==='range' && kind!=='ob'){ const k = L.disc; if(!range.best[k] || total > range.best[k]) range.best[k] = total; saveRange(); }
 }
 
 const OB_MSG = {'ob-water':'Splash! 💦', 'ob-gorge':'Into the gorge!', 'ob-roof':'Stuck up there!', 'ob-out':'Out of bounds'};
@@ -1296,18 +1301,29 @@ $('menuBtn').addEventListener('click', ()=>{ exitScout(); $('pauseScreen').class
 $('resumeBtn').addEventListener('click', ()=>$('pauseScreen').classList.add('hidden'));
 $('quitBtn').addEventListener('click', toMenu);
 $('practiceBtn').addEventListener('click', ()=>startRound('practice', -1));
-let range = {n:0, best:{}, from:'tee', wind:0};
+let range = (()=>{ let r = {n:0, best:{}, longest:null, from:'tee', wind:0}; try{ const sv = JSON.parse(localStorage.getItem('discgolf-range')); if(sv){ r.best = sv.best || {}; r.longest = sv.longest || null; } }catch(e){} return r; })();
+function saveRange(){ try{ localStorage.setItem('discgolf-range', JSON.stringify({best:range.best, longest:range.longest})); }catch(e){} }
+let longFlag = null;
+function placeLongFlag(){
+  if(longFlag && longFlag.parent) longFlag.parent.remove(longFlag);
+  if(!range.longest || !course) return;
+  const L = range.longest, g = new THREE.Group(), y = W.T(L.x, L.z).h;
+  const pole = outlined(new THREE.CylinderGeometry(0.04,0.04,2.4,8), '#ffffff', 0.15); pole.position.y = 1.2; g.add(pole);
+  const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.55), bright('#ffd000', 0.6, THREE.DoubleSide)); flag.position.set(0.45, 2.1, 0); g.add(flag);
+  const lab = textSprite(`🏆 ${L.d.toFixed(0)} m`, 0.12, 0.06, false, '#ffd000'); lab.position.y = 3; lab.renderOrder = 10; g.add(lab);
+  g.position.set(L.x, y, L.z); course.group.add(g); longFlag = g;
+}
 function startRange(){
   if(!actx) initAudio();
   mode = 'range'; tier = -1; field = []; players = [mkPlayer('You', 0)]; you = players[0]; cur = 0;
-  range = {n:0, best:range.best || {}, from:'tee', wind:0}; winds = [{x:0, z:0}]; holeIdx = 0; strokes = 0; lastThrowDist = 0;
+  range = {n:0, best:range.best || {}, longest:range.longest || null, from:'tee', wind:0}; winds = [{x:0, z:0}]; holeIdx = 0; strokes = 0; lastThrowDist = 0;
   $('menuScreen').classList.add('hidden'); $('top').classList.remove('hidden'); $('bottom').classList.remove('hidden');
   $('board').classList.add('hidden'); $('rangeRow').classList.remove('hidden');
   const ld = $('loading'); ld.classList.remove('hidden');
   setTimeout(()=>{
     buildHole('range'); lie.set(0, W.T(0,0).h + 0.15, 0); lastLie.copy(lie);
     faceBasket(); state = 'aim'; setDisc('driver'); flying = null; trailPts = []; updateTrail();
-    renderRangeBtns(); updateHUD(); ld.classList.add('hidden');
+    renderRangeBtns(); placeLongFlag(); updateHUD(); ld.classList.add('hidden');
     flash('Driving range<br><span style="font-size:20px">Throw as much as you like</span>', 2);
   }, 30);
 }
@@ -1823,6 +1839,8 @@ function frame(){
   sky.position.copy(camera.position);
   marker.visible = state!=='holed' && mode!=='range';
 
+  const busy = state==='flick' || state==='flight' || state==='roll' || state==='rest' || state==='transition' || state==='holed';
+  if(busy !== document.body.classList.contains('busy')) document.body.classList.toggle('busy', busy);
   if(statsTimer > 0){ statsTimer -= dt; if(statsTimer <= 0) $('statsCard').classList.add('hidden'); }
   if(state==='replay') stepReplay(dt);
   if(mode==='online' && flying && (state==='flight' || state==='roll' || state==='rest') && cur===myIdx && throwPath){
