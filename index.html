@@ -1407,6 +1407,7 @@ function startHole(i){
     buildHole(i);
     for(const p of players){ p.lie.set(0, W.T(0,0).h + 0.15, 0); p.lastLie.copy(p.lie); p.strokes = 0; p.done = false; p.lastThrowDist = 0; if(p.gone){ p.done = true; p.scores[i] = C.HOLES[i].par + 3; } }
     netQueue = netQueue.filter(m=>m.hole >= i);
+    if(mode==='online') saveSession();
     loadPlayer(0);
     faceBasket();
     state = 'aim'; autoDisc(); setDisc(discKey);
@@ -1643,6 +1644,7 @@ function finishRound(){
   $('card').innerHTML = scorecardHTML();
   if(mode==='local' || mode==='online'){
     const rows = standings(9), top = rows.filter(o=>o.n===1);
+    if(mode==='online'){ setTimeout(saveSession, 0); }
     $('hsBig').textContent = top.length===1 ? `🏆 ${top[0].p.name} wins!` : '🤝 A tie!';
     $('hsSub').textContent = top.length===1 ? `${relTxt(top[0].rel)} over 9 holes.` : top.map(o=>o.p.name).join(' & ') + ` share it on ${relTxt(top[0].rel)}.`;
     $('lb').innerHTML = leaderboardHTML(9); sfx.cheer();
@@ -1668,7 +1670,7 @@ $('nextBtn').addEventListener('click', ()=>{
   if(mode==='online'){ if(!net.host) return; netSend({t:'hole', i:holeIdx + 1}); }
   if(holeIdx === C.HOLES.length - 1) finishRound(); else startHole(holeIdx + 1);
 });
-function toMenu(){ netClose(); $('skipBar').classList.add('hidden'); $('waitBar').classList.add('hidden'); $('scoutBar').classList.add('hidden'); $('passScreen').classList.add('hidden'); while(others.children.length) others.remove(others.children[0]); state = 'menu'; $('top').classList.add('hidden'); $('bottom').classList.add('hidden'); $('holeScreen').classList.add('hidden'); $('pauseScreen').classList.add('hidden'); renderMenu(); $('menuScreen').classList.remove('hidden'); for(const k in held) held[k].visible = false; }
+function toMenu(){ clearSession(); netClose(); $('skipBar').classList.add('hidden'); $('waitBar').classList.add('hidden'); $('scoutBar').classList.add('hidden'); $('passScreen').classList.add('hidden'); while(others.children.length) others.remove(others.children[0]); state = 'menu'; $('top').classList.add('hidden'); $('bottom').classList.add('hidden'); $('holeScreen').classList.add('hidden'); $('pauseScreen').classList.add('hidden'); renderMenu(); $('menuScreen').classList.remove('hidden'); for(const k in held) held[k].visible = false; }
 $('menuBtn').addEventListener('click', ()=>{ exitScout(); $('pauseScreen').classList.remove('hidden'); });
 $('resumeBtn').addEventListener('click', ()=>$('pauseScreen').classList.add('hidden'));
 $('quitBtn').addEventListener('click', toMenu);
@@ -1716,7 +1718,7 @@ function netSend(msg){ if(!net.client) return; msg.from = net.id; try{ net.clien
 function netClose(){
   clearTimeout(net.joinTimer);
   if(net.client){ try{ net.client.publish(net.topic, JSON.stringify({t:'bye', from:net.id}), {qos:1}); }catch(e){} const c = net.client; setTimeout(()=>{ try{ c.end(true); }catch(e){} }, 300); }
-  Object.assign(net, {client:null, host:false, code:'', topic:'', lobby:[], started:false, away:{}});
+  Object.assign(net, {client:null, host:false, code:'', topic:'', lobby:[], started:false, away:{}, seq:0, resuming:false, buffer:[]});
   releaseWake();
 }
 // keep the screen awake during online games so the connection doesn't drop
@@ -1736,13 +1738,15 @@ function connectBroker(i, code){
     const timer = setTimeout(fail, 9000);
     c.on('connect', ()=>{ c.subscribe(topic, {qos:1}, err=>{ if(done) return; if(err) return fail(); done = true; clearTimeout(timer); res(c); }); });
     c.on('error', ()=>{});
-    c.on('message', (t, buf)=>{ if(net.client!==c) return; let m; try{ m = JSON.parse(buf.toString()); }catch(e){ return; } if(m.from === net.id) return; onNet(m); });
+    net.connecting = c;
+    c.on('message', (t, buf)=>{ if(net.client!==c && net.connecting!==c) return; let m; try{ m = JSON.parse(buf.toString()); }catch(e){ return; } if(m.from === net.id) return; if(net.resuming){ net.buffer.push(m); return; } onNet(m); });
     c.on('reconnect', ()=>{ if(net.client===c && state!=='menu') olStatus('Reconnecting…'); });
     c.on('connect', ()=>{ if(net.client===c){ olStatus(net.started ? '' : $('olStatus').textContent==='Reconnecting…' ? 'Back online' : $('olStatus').textContent); if(net.started) netSend({t:'back'}); } });
   });
 }
 function inviteURL(){ return location.origin + location.pathname + '?join=' + net.code + '&b=' + net.broker; }
 function renderLobby(){
+  saveSession();
   $('olPlayers').innerHTML = net.lobby.map((p,i)=>`<tr class="${p.pid===net.id?'me':''}"><td><span class="pdot" style="background:${PCOL[i]}"></span></td><td>${esc(p.name)}${i===0 ? ' (host)' : ''}</td><td class="rel"></td></tr>`).join('');
   $('olGo').classList.toggle('hidden', !net.host);
   $('olShare').classList.toggle('hidden', !net.host);
@@ -1793,6 +1797,7 @@ function onNet(msg){
     renderLobby(); netSend({t:'lobby', lobby:net.lobby}); olStatus(`${net.lobby.length} players ready`);
     return;
   }
+  if(msg.t==='syncreq' || msg.t==='sync'){ if(!net.started) return; }
   if(msg.t==='lobby'){
     if(!msg.lobby.some(p=>p.pid===net.id)) return;
     net.lobby = msg.lobby; myIdx = net.lobby.findIndex(p=>p.pid===net.id);
@@ -1824,12 +1829,15 @@ function onNet(msg){
     if(state==='wait' && cur===msg.idx) continueAfterRemote();
     return;
   }
-  if(msg.t==='throw'){ netQueue.push(msg); processQueue(); }
+  if(msg.t==='throw'){ if(msg.n && msg.n <= (net.seq||0)) return; netQueue.push(msg); processQueue(); }
+  if(msg.t==='syncreq'){ if(players.length && net.started) netSend({t:'sync', to:msg.from, snap:makeSnap()}); return; }
+  if(msg.t==='sync'){ if(msg.to===net.id) applySync(msg.snap); return; }
 }
 function launchOnline(lobby){
   net.started = true; net.lobby = lobby; myIdx = lobby.findIndex(p=>p.pid===net.id);
   $('onlineScreen').classList.add('hidden'); keepAwake();
   startRound('online', -1, lobby.map(p=>p.name));
+  saveSession();
 }
 function openOnline(code, hint){
   try{ $('olName').value = localStorage.getItem('discgolf-olname') || ''; }catch(e){}
@@ -1843,7 +1851,7 @@ $('onlineBtn').addEventListener('click', ()=>openOnline(''));
 $('olHost').addEventListener('click', hostGame);
 $('olJoin').addEventListener('click', ()=>joinGame('', net.hint));
 $('olGo').addEventListener('click', ()=>{ if(!net.host || net.lobby.length < 2) return; netSend({t:'start', lobby:net.lobby}); launchOnline(net.lobby); });
-$('olBack').addEventListener('click', ()=>{ netClose(); $('onlineScreen').classList.add('hidden'); });
+$('olBack').addEventListener('click', ()=>{ clearSession(); netClose(); $('onlineScreen').classList.add('hidden'); });
 $('olWhatsApp').addEventListener('click', ()=>{
   const txt = `Come and play disc golf with me! 🥏\nTap to join my game: ${inviteURL()}\n(or open Online play and type code ${net.code})`;
   window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
@@ -1853,14 +1861,95 @@ $('olMore').addEventListener('click', async ()=>{
   try{ if(navigator.share){ await navigator.share({title:'Disc Golf', text:`Join my disc golf game (code ${net.code}) 🥏`, url}); return; } }catch(e){ return; }
   try{ await navigator.clipboard.writeText(url); olStatus('Invite link copied'); }catch(e){ olStatus(url); }
 });
+// ---------- surviving a refresh ----------
+const SESS_KEY = 'discgolf-online-session';
+function makeSnap(){
+  return {v:1, at:Date.now(), id:net.id, host:net.host, code:net.code, broker:net.broker, lobby:net.lobby, started:net.started, seq:net.seq||0,
+    holeIdx, cur, phase: state==='finished' ? 'finished' : 'play',
+    players: players.map(p=>({scores:p.scores, lie:[p.lie.x,p.lie.y,p.lie.z], lastLie:[p.lastLie.x,p.lastLie.y,p.lastLie.z], strokes:p.strokes, done:p.done, gone:!!p.gone, ltd:p.lastThrowDist}))};
+}
+function saveSession(){ if(!net.code || !net.client || net.resuming) return; try{ localStorage.setItem(SESS_KEY, JSON.stringify(makeSnap())); }catch(e){} }
+function clearSession(){ try{ localStorage.removeItem(SESS_KEY); }catch(e){} }
+function loadSession(){ try{ const s = JSON.parse(localStorage.getItem(SESS_KEY)); if(s && s.v===1 && Date.now() - s.at < 3*3600e3) return s; }catch(e){} return null; }
+function applySnapPlayers(sn){
+  sn.players.forEach((q,i)=>{ const p = players[i]; if(!p) return;
+    p.scores = q.scores.slice(); p.lie.set(q.lie[0],q.lie[1],q.lie[2]); p.lastLie.set(q.lastLie[0],q.lastLie[1],q.lastLie[2]);
+    p.strokes = q.strokes; p.done = q.done; p.gone = q.gone; p.lastThrowDist = q.ltd || 0; });
+  net.seq = Math.max(net.seq||0, sn.seq||0);
+}
+function enterPhase(sn){
+  $('holeScreen').classList.add('hidden'); $('skipBar').classList.add('hidden');
+  if(sn.phase==='finished'){ finishRound(); return; }
+  const n = nextPlayer();
+  if(n < 0){ for(const k in discs) discs[k].visible = false; showHoleCard(''); return; }
+  loadPlayer(n); onlineTurn(false);
+}
+// rebuild an online game from a snapshot (ours from before the refresh, or a newer one from another player)
+function resumeOnline(sn, done){
+  mode = 'online'; tier = -1; field = []; winds = C.holeWinds(-1, 1);
+  players = sn.lobby.map((p,i)=>mkPlayer(p.name, i)); myIdx = sn.lobby.findIndex(p=>p.pid===net.id);
+  $('menuScreen').classList.add('hidden'); $('onlineScreen').classList.add('hidden');
+  $('top').classList.remove('hidden'); $('board').classList.remove('hidden');
+  const ld = $('loading'); ld.classList.remove('hidden');
+  setTimeout(()=>{
+    holeIdx = sn.holeIdx; buildHole(holeIdx);
+    applySnapPlayers(sn); loadPlayer(Math.max(0, Math.min(players.length-1, sn.cur||0)));
+    trailPts = []; updateTrail(); flying = null; replay = null;
+    ld.classList.add('hidden');
+    enterPhase(sn);
+    if(done) done();
+  }, 30);
+}
+function applySync(sn){
+  if(!sn || !net.started) return;
+  const newer = (sn.seq||0) > (net.seq||0) || sn.holeIdx > holeIdx || (sn.phase==='finished' && state!=='finished');
+  if(!newer) return;
+  const busy = state==='flight' || state==='roll' || state==='rest' || state==='flick' || state==='replay' || state==='transition';
+  if(busy && sn.holeIdx===holeIdx) return;
+  netQueue = netQueue.filter(m=>!m.n || m.n > (sn.seq||0));
+  if(sn.holeIdx !== holeIdx){ resumeOnline(Object.assign({}, sn, {lobby:net.lobby})); return; }
+  applySnapPlayers(sn); enterPhase(sn); saveSession();
+}
+async function rejoinSession(sv){
+  if(!window.mqtt){ setTimeout(()=>rejoinSession(sv), 500); return; }
+  Object.assign(net, {id:sv.id, host:sv.host, code:sv.code, topic:'frisbee-golf-skoorbydna/v1/' + sv.code, broker:sv.broker, lobby:sv.lobby, started:false, seq:sv.seq||0, away:{}, buffer:[]});
+  myIdx = Math.max(0, sv.lobby.findIndex(p=>p.pid===sv.id));
+  openOnline(''); $('olStart').classList.add('hidden'); $('olLobby').classList.remove('hidden'); $('olCodeShow').textContent = sv.code;
+  olStatus(`Reconnecting to game ${sv.code}…`);
+  net.resuming = !!sv.started;
+  let c = null;
+  for(let tries=0; tries<3 && !c; tries++) c = await connectBroker(sv.broker, sv.code);
+  if(net.code !== sv.code) { if(c) c.end(true); return; }
+  if(!c){ net.resuming = false; olStatus('Couldn\'t reconnect. Check your internet, then tap Back and join again.'); return; }
+  net.client = c; keepAwake();
+  if(!sv.started){
+    renderLobby();
+    if(net.host){ netSend({t:'lobby', lobby:net.lobby}); olStatus('Back online. Waiting for players…'); }
+    else { netSend({t:'hello', name:sv.lobby[myIdx] ? sv.lobby[myIdx].name : myName()}); olStatus('Back in the game lobby. Waiting for the host to start…'); }
+    return;
+  }
+  net.started = true;
+  resumeOnline(sv, ()=>{
+    net.resuming = false;
+    const buf = net.buffer; net.buffer = []; buf.forEach(onNet);     // anything that arrived while we were away
+    netSend({t:'back'}); netSend({t:'syncreq'});
+    flash('Reconnected', 1.4);
+  });
+}
+
 // opened from an invite link?
-(()=>{ try{ const q = new URLSearchParams(location.search), j = q.get('join'); if(j && /^[A-Z0-9]{4}$/i.test(j)){ history.replaceState(null, '', location.pathname); setTimeout(()=>openOnline(j.toUpperCase(), q.get('b')), 200); } }catch(e){} })();
+(()=>{ try{
+  const q = new URLSearchParams(location.search), j = q.get('join'), sv = loadSession();
+  if(j) history.replaceState(null, '', location.pathname);
+  if(sv && (!j || j.toUpperCase()===sv.code)){ setTimeout(()=>rejoinSession(sv), 200); return; }   // refreshed mid-game or in the lobby
+  if(j && /^[A-Z0-9]{4}$/i.test(j)){ clearSession(); setTimeout(()=>openOnline(j.toUpperCase(), q.get('b')), 200); }
+}catch(e){} })();
 
 function netSendThrow(kind){
-  const p = players[cur];
-  netSend({t:'throw', hole:holeIdx, idx:cur, kind, disc:discKey, path:throwPath || [], msg:$('msg').innerHTML,
+  const p = players[cur]; net.seq = (net.seq||0) + 1;
+  netSend({t:'throw', n:net.seq, hole:holeIdx, idx:cur, kind, disc:discKey, path:throwPath || [], msg:$('msg').innerHTML,
            lie:[p.lie.x, p.lie.y, p.lie.z], lastLie:[p.lastLie.x, p.lastLie.y, p.lastLie.z], strokes:p.strokes, done:p.done, score:p.scores[holeIdx] ?? null, ltd:p.lastThrowDist});
-  throwPath = null;
+  throwPath = null; saveSession();
 }
 function onlineTurn(first){
   for(const k in discs) discs[k].visible = false; for(const k in held) held[k].visible = false;
@@ -1883,6 +1972,7 @@ function onlineTurn(first){
 function processQueue(){
   if(state==='scout' && scout.prev==='wait'){ exitScout(); return; }
   if(state!=='wait') return;
+  netQueue = netQueue.filter(m=>!m.n || m.n > (net.seq||0));
   const i = netQueue.findIndex(m=>m.hole===holeIdx && m.idx===cur);
   if(i < 0) return;
   const m = netQueue.splice(i,1)[0];
@@ -1918,9 +2008,11 @@ function stepReplay(dt){
 }
 function applyThrow(m){
   const p = players[m.idx]; if(!p) return p;
+  if(m.n) net.seq = Math.max(net.seq||0, m.n);
   p.lie.set(m.lie[0], m.lie[1], m.lie[2]); p.lastLie.set(m.lastLie[0], m.lastLie[1], m.lastLie[2]);
   p.strokes = m.strokes; p.done = m.done; p.lastThrowDist = m.ltd || 0;
   if(m.score != null) p.scores[m.hole] = m.score;
+  saveSession();
   return p;
 }
 // the host moved on: apply anything still being watched or waiting so scores never get lost
