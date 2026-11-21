@@ -592,6 +592,77 @@ function stepRoll(w, f, dt){
   return null;
 }
 
+// ---------- golf: ball, clubs, bounce and roll ----------
+const CLUBS = {
+  driver:{name:'Driver', loft:13, max:58, spin:0.8},
+  iron5:{name:'5 Iron', loft:23, max:44, spin:0.85},
+  iron9:{name:'9 Iron', loft:38, max:35, spin:1.0},
+  wedge:{name:'Wedge', loft:52, max:27, spin:1.1},
+  putter:{name:'Putter', loft:1, max:7, spin:0}
+};
+// e = bounce, roll = rolling resistance (m/s²), fr = speed lost on each bounce
+const SURF = {green:{e:0.25, roll:0.8, fr:0.22}, fair:{e:0.3, roll:2.8, fr:0.35}, grass:{e:0.18, roll:5, fr:0.5}, out:{e:0.18, roll:5, fr:0.5},
+  forest:{e:0.15, roll:5.5, fr:0.6}, sand:{e:0.03, roll:14, fr:0.85}, rock:{e:0.5, roll:2.2, fr:0.22}, stone:{e:0.42, roll:2.6, fr:0.25},
+  canyonfloor:{e:0.3, roll:2.8, fr:0.35}, concrete:{e:0.55, roll:1.2, fr:0.15}, hard:{e:0.5, roll:1.6, fr:0.2}};
+function newBall(pos, vel, backspin, side){ const f = newFlight(pos, vel, 0); f.ball = true; f.backspin = backspin; f.side = side; f.bounces = 0; return f; }
+function cupNear(w, p){ let best = null, bd = 1e9; for(const B of w.baskets){ const d = Math.hypot(p.x-B.x, p.z-B.z); if(d < bd){ bd = d; best = B; } } return [best, bd]; }
+function stepBall(w, f, dt){
+  const p = f.pos, v = f.vel, px = p.x, py = p.y, pz = p.z;
+  const wx = w.wind.x*w.wf, wz = w.wind.z*w.wf, rx = v.x - wx, rz = v.z - wz;
+  const sp = Math.hypot(rx, v.y, rz) || 1e-3, hs = Math.hypot(rx, rz) || 1e-3;
+  let ax = -0.0042*sp*rx, ay = -G - 0.0042*sp*v.y, az = -0.0042*sp*rz;
+  const lift = 0.0016*f.backspin*sp*sp;                       // backspin holds the ball up
+  ay += lift*(hs/sp); ax -= lift*(v.y/sp)*(rx/hs); az -= lift*(v.y/sp)*(rz/hs);
+  const lat = f.side*0.0011*sp*sp;                            // sidespin: + curves right (slice), - left (hook)
+  ax += (-rz/hs)*lat; az += (rx/hs)*lat;
+  v.x += ax*dt; v.y += ay*dt; v.z += az*dt; p.x += v.x*dt; p.y += v.y*dt; p.z += v.z*dt;
+  f.backspin *= 1 - 0.05*dt; f.side *= 1 - 0.05*dt; f.t += dt; f.spin += dt*25; if(p.y > (f.maxY ?? -1e9)) f.maxY = p.y;
+  collide(w, f, px, py, pz, false);
+  const su = surface(w, p.x, p.z, py);
+  if(p.y <= su.s + 0.02){
+    const prev = surface(w, px, pz, py).s;
+    if(su.s - prev > 0.7 && py < su.s - 0.25){ p.x = px; p.z = pz; v.x *= -0.35; v.z *= -0.35; ev(w,'thunk'); return null; }
+    p.y = su.s + 0.02;
+    if(!f.firstLand) f.firstLand = {x:p.x, y:p.y, z:p.z, t:f.t};
+    const ob = landType(w, f, su.on); if(ob) return ob;
+    const gty = su.on ? 'hard' : w.T(p.x, p.z).type, S = SURF[gty] || SURF.grass, vy = -v.y;
+    const [B, db] = cupNear(w, p); if(db < 0.1 && Math.hypot(v.x, v.z) < 5) return 'in';   // straight in the hole
+    if(vy > 1.0){
+      const bite = (gty==='green' || gty==='fair') ? Math.min(0.5, f.backspin*0.3) : 0;     // backspin checks it up on short grass
+      v.y = vy*S.e; v.x *= 1 - S.fr - bite; v.z *= 1 - S.fr - bite; f.backspin *= 0.5; f.side *= 0.5;
+      p.y = su.s + 0.025; f.bounces++; ev(w,'land'); return null;
+    }
+    v.y = 0; f.on = su.on; ev(w,'land'); return 'land';
+  }
+  if(f.t > 14 || outside(w, p.x, p.z) || p.y < -40) return 'ob-out';
+  return null;
+}
+function stepBallRoll(w, f, dt){
+  const p = f.pos, v = f.vel, px = p.x, pz = p.z;
+  f.rollT += dt;
+  const su = surface(w, p.x, p.z, p.y + 0.3);
+  let gx = 0, gz = 0;
+  if(!su.on){ const e = 0.5; gx = (w.T(p.x+e,p.z).h - w.T(p.x-e,p.z).h)/(2*e); gz = (w.T(p.x,p.z+e).h - w.T(p.x,p.z-e).h)/(2*e); }
+  const slope = Math.hypot(gx, gz), gty = su.on ? 'hard' : w.T(p.x, p.z).type, S = SURF[gty] || SURF.grass;
+  v.x -= G*0.6*gx*dt; v.z -= G*0.6*gz*dt;                     // balls run downhill
+  let sp = Math.hypot(v.x, v.z);
+  const dec = Math.min(sp, S.roll*dt); if(sp > 0){ v.x -= v.x/sp*dec; v.z -= v.z/sp*dec; }
+  sp = Math.hypot(v.x, v.z);
+  if((sp < 0.05 && slope*G*0.6 < S.roll) || f.rollT > 15) return 'rest';
+  p.x += v.x*dt; p.z += v.z*dt; f.spin += dt*sp*12;
+  collide(w, f, px, p.y, pz, true);
+  const s2 = surface(w, p.x, p.z, p.y + 0.3);
+  if(s2.s > p.y + 0.6){ p.x = px; p.z = pz; v.x *= -0.3; v.z *= -0.3; } else p.y = s2.s + 0.02;
+  const [B, db] = cupNear(w, p);
+  if(db < 0.11){
+    if(sp < 1.7){ f.inBasket = B; return 'in'; }
+    if(db < 0.07){ const a = (Math.random() - 0.5)*0.9, c = Math.cos(a), s = Math.sin(a), vx = v.x, vz = v.z; v.x = (vx*c - vz*s)*0.7; v.z = (vz*c + vx*s)*0.7; ev(w,'clank'); }   // lip-out
+  }
+  f.on = s2.on;
+  const ob = landType(w, f, s2.on); if(ob) return ob;
+  return null;
+}
+
 // ---------- tournaments & CPU players ----------
 const TOURS = [
   {name:'Village Open', blurb:'Friendly locals. Finish top 3 to unlock the County Classic.', skill:[0.15,0.5], wind:[1,5]},
@@ -619,6 +690,6 @@ function holeWinds(tier, seed, holes){
   });
 }
 
-return {G, rng, fbm, smooth, distToPath, DISCS, HOLES, COURSES, RANGE, genHole, GEN_NAMES, makeTerrain, makeWorld, surface, newFlight, stepFlight, stepRoll, TOURS, makeField, cpuScore, holeWinds, OB_TYPES};
+return {G, rng, fbm, smooth, distToPath, DISCS, CLUBS, SURF, newBall, stepBall, stepBallRoll, cupNearW:(w,p)=>cupNear(w,p)[0], HOLES, COURSES, RANGE, genHole, GEN_NAMES, makeTerrain, makeWorld, surface, newFlight, stepFlight, stepRoll, TOURS, makeField, cpuScore, holeWinds, OB_TYPES};
 })();
 if(typeof module !== 'undefined') module.exports = Core;
