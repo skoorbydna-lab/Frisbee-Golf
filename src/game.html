@@ -132,7 +132,7 @@
     <button class="tour" id="localBtn">👥 Pass &amp; play<small>2–4 players on one phone. Furthest from the basket throws next.</small></button>
     <button class="tour" id="rangeBtn">🎯 Driving range<small>Unlimited throws at target baskets, with a breakdown of every flick.</small></button>
     <button class="tour" id="practiceBtn">Practice round<small>The round you picked above, no opponents, gentle preset winds.</small></button>
-    <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div><div class="row" style="margin-top:6px"><button class="chip setS">Throw stats in rounds: Off</button></div>
+    <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div><div class="row" style="margin-top:6px"><button class="chip setS">Throw stats in rounds: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setW">Opponents' throws: watch</button></div>
     <p style="font-size:12.5px;opacity:.8;margin-top:12px">✋ Touch the disc, slide <b>right</b> for hyzer (curves left), <b>left</b> for anhyzer (curves right).<br>👆 Flick up to throw. Faster and longer flicks go further; higher flicks fly higher.<br>🎯 Drag anywhere else to look around.<br>🔭 Two fingers (or Scout) fly the camera round the course to plan your shot.</p>
   </div>
 </div>
@@ -202,7 +202,7 @@
 <div class="overlay hidden" id="pauseScreen">
   <div class="card">
     <h2>Paused</h2>
-    <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div><div class="row" style="margin-top:6px"><button class="chip setS">Throw stats in rounds: Off</button></div>
+    <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div><div class="row" style="margin-top:6px"><button class="chip setS">Throw stats in rounds: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setW">Opponents' throws: watch</button></div>
     <button class="btn" id="resumeBtn">Resume</button><br>
     <button class="btn alt" id="quitBtn">Quit to menu</button>
   </div>
@@ -1726,7 +1726,8 @@ function onlineTurn(first){
   } else {
     state = 'wait'; updateHUD();
     $('bottom').classList.add('hidden'); $('waitBar').classList.remove('hidden');
-    $('waitBar').innerHTML = `<span class="pdot" style="background:${you.color}"></span>${esc(you.name)} is throwing… <span style="opacity:.6">(🔭 Scout to look around)</span>`;
+    $('waitBar').innerHTML = `<span class="pdot" style="background:${you.color}"></span>${esc(you.name)} is throwing… <span style="opacity:.6">(🔭 Scout to look around)</span><br><button class="chip" id="waitSkip" style="margin-top:6px;pointer-events:auto;font-size:13px;padding:4px 10px"></button>`;
+    renderAutoSkip();
     if(first) flash(`Hole ${numAt(holeIdx)} · ${H.name}<br><span style="font-size:20px">Par ${H.par}</span>`, 2);
     processQueue();
   }
@@ -1797,8 +1798,15 @@ function skipReplay(){
   finishReplay(true);
 }
 $('skipBtn').addEventListener('click', skipReplay);
-function renderAutoSkip(){ $('autoSkipBtn').textContent = 'Auto-skip: ' + (settings.autoSkip ? 'On' : 'Off'); $('autoSkipBtn').classList.toggle('on', !!settings.autoSkip); }
-$('autoSkipBtn').addEventListener('click', ()=>{ settings.autoSkip = !settings.autoSkip; try{ localStorage.setItem(SET_KEY, JSON.stringify(settings)); }catch(e){} renderAutoSkip(); if(settings.autoSkip) skipReplay(); });
+function renderAutoSkip(){
+  $('autoSkipBtn').textContent = 'Auto-skip: ' + (settings.autoSkip ? 'On' : 'Off'); $('autoSkipBtn').classList.toggle('on', !!settings.autoSkip);
+  document.querySelectorAll('.setW').forEach(b=>{ b.textContent = "Opponents' throws: " + (settings.autoSkip ? 'skip to landing' : 'watch'); b.classList.toggle('on', !!settings.autoSkip); });
+  const w = $('waitSkip'); if(w) w.textContent = settings.autoSkip ? '⏭ Auto-skip on' : '👀 Watching throws';
+}
+function toggleAutoSkip(){ settings.autoSkip = !settings.autoSkip; try{ localStorage.setItem(SET_KEY, JSON.stringify(settings)); }catch(e){} renderAutoSkip(); if(settings.autoSkip) skipReplay(); }
+document.querySelectorAll('.setW').forEach(b=>b.addEventListener('click', toggleAutoSkip));
+$('waitBar').addEventListener('click', e=>{ if(e.target && e.target.id==='waitSkip') toggleAutoSkip(); });
+$('autoSkipBtn').addEventListener('click', toggleAutoSkip);
 renderAutoSkip();
 function finishReplay(skipped){
   $('skipBar').classList.add('hidden');
