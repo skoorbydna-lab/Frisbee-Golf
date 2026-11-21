@@ -893,10 +893,15 @@ function makeDisc(color){
   g.userData = {tilt, spin}; return g;
 }
 const discs = {}, held = {};
+const DISC_ORDER = 3;
 for(const k in C.DISCS){
-  discs[k] = makeDisc(C.DISCS[k].color); discs[k].visible = false; scene.add(discs[k]);
+  discs[k] = makeDisc(C.DISCS[k].color); discs[k].visible = false; discs[k].traverse(o=>{ o.renderOrder = DISC_ORDER; }); scene.add(discs[k]);
   const d = makeDisc(C.DISCS[k].color); d.scale.setScalar(0.9); d.position.set(0,-0.2,-0.6); d.rotation.order = 'ZXY'; d.rotation.set(1.05,0,0); d.visible = false; d.traverse(o=>{o.castShadow=false;}); camera.add(d); held[k] = d;
 }
+const discPin = (()=>{ const cv = document.createElement('canvas'); cv.width = cv.height = 64; const g = cv.getContext('2d');
+  g.beginPath(); g.moveTo(10,12); g.lineTo(54,12); g.lineTo(32,54); g.closePath(); g.fillStyle = '#ffffff'; g.fill(); g.lineWidth = 6; g.strokeStyle = '#14202b'; g.stroke();
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv), depthTest:false, sizeAttenuation:false, transparent:true}));
+  sp.scale.set(0.045, 0.045, 1); sp.renderOrder = 11; sp.visible = false; scene.add(sp); return sp; })();
 const TRAIL_N = 90;
 const trailGeo = new THREE.BufferGeometry(); trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAIL_N*3), 3));
 const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({color:'#ffffff', transparent:true, opacity:0.75}));
@@ -978,6 +983,16 @@ function groundAt(x, z){ return W ? W.T(x, z).h : 0; }
 
 const TCOL = REAL ? {fair:'#245a1c', green:'#3f8c2c', grass:'#6f9c4a', out:'#6f9c4a', forest:'#4e6e34', stone:'#8a9264', sand:'#d8c79a', concrete:'#a9a69f', rock:'#a97f58', canyonfloor:'#c9a97c', water:'#5f7a52', gorge:'#6e655a'} : {fair:'#327a25', green:'#4fae36', grass:'#86b85a', out:'#86b85a', forest:'#5d7f3c', stone:'#94a26c', sand:'#ecd9a4', concrete:'#bdbab2',
               rock:'#bb8a5d', canyonfloor:'#dcbc8b', water:'#6f8a62', gorge:'#7b6f62'};
+let tgrid = null;
+// height of the ground as actually drawn (the mesh), which can sit a little above the exact terrain in dips
+function meshH(x, z){
+  const G = tgrid; if(!G) return groundAt(x, z);
+  const fx = (x - G.x0)/G.cw, fz = (z - G.z0)/G.ch, ix = Math.floor(fx), iz = Math.floor(fz);
+  if(ix < 0 || iz < 0 || ix >= G.sx || iz >= G.sz) return groundAt(x, z);
+  const u = fx - ix, v = fz - iz, row = G.sx + 1, h = G.hs;
+  const ha = h[iz*row + ix], hd = h[iz*row + ix + 1], hb = h[(iz+1)*row + ix], hc = h[(iz+1)*row + ix + 1];
+  return u + v <= 1 ? ha + (hd-ha)*u + (hb-ha)*v : hc + (hb-hc)*(1-u) + (hd-hc)*(1-v);
+}
 function buildTerrain(group){
   const H = W.H, b = W.bounds, margin = H.sea ? 80 : 230;
   const x0 = b.minX - margin, x1 = b.maxX + margin, z0 = b.minZ - margin, z1 = b.maxZ + margin;
@@ -986,6 +1001,7 @@ function buildTerrain(group){
   const sx = Math.ceil((x1-x0)/step), sz = Math.ceil((z1-z0)/step);
   const g = new THREE.PlaneGeometry(x1-x0, z1-z0, sx, sz); g.rotateX(-Math.PI/2); g.translate((x0+x1)/2, 0, (z0+z1)/2);
   const P = g.attributes.position, N = P.count, hs = new Float32Array(N), ty = new Array(N);
+  tgrid = {x0, z0, cw:(x1-x0)/sx, ch:(z1-z0)/sz, sx, sz, hs};
   for(let i=0;i<N;i++){ const t = W.T(P.getX(i), P.getZ(i)); hs[i] = t.h; ty[i] = t.type; P.setY(i, t.h); }
   const col = new Float32Array(N*3), c = new THREE.Color(), rockC = new THREE.Color(H.theme==='canyon' ? '#bb8a5d' : H.theme==='gorge' ? '#a0968a' : '#9a9286');
   const brown = new THREE.Color('#6b5a3a'), seabed = new THREE.Color('#d6c48e');
@@ -2290,6 +2306,10 @@ function frame(){
       flying.wobPh = (flying.wobPh || 0) + dt*(9 + (1-w)*30);
       const amp = 0.5*w*w; tl.rotation.x = Math.sin(flying.wobPh)*amp; tl.rotation.z += Math.cos(flying.wobPh)*amp*0.5*Math.min(1, dt*20);
     } else tl.rotation.x *= 0.8;
+    if(state!=='flight' || flying.pos.y - groundAt(flying.pos.x, flying.pos.z) < 0.5){
+      const gy = Math.max(groundAt(flying.pos.x, flying.pos.z), meshH(flying.pos.x, flying.pos.z));
+      dm.position.y = Math.max(dm.position.y, gy + 0.07);
+    }
     dm.position.y += Math.abs(Math.sin(tl.rotation.z))*0.1 + Math.abs(Math.sin(tl.rotation.x))*0.1;
     dm.userData.spin.rotation.y = -flying.spin;
   }
@@ -2350,6 +2370,9 @@ function frame(){
   sun.position.copy(focus).add(SUN_OFF); sun.target.position.copy(focus); sun.target.updateMatrixWorld();
   sky.position.copy(camera.position);
   marker.visible = state!=='holed' && mode!=='range';
+  const showPin = flying && (state==='roll' || state==='rest' || state==='rpause' || (state==='replay' && replay && replay.t > 0.5 && flying.pos.y - groundAt(flying.pos.x, flying.pos.z) < 0.6));
+  discPin.visible = !!showPin;
+  if(showPin){ discPin.position.set(dm.position.x, dm.position.y + 0.9 + Math.sin(U.uTime.value*5)*0.08, dm.position.z); if(discPin.userData.col !== discKey){ discPin.material.color.set(C.DISCS[discKey].color); if(REAL) discPin.material.color.convertSRGBToLinear(); discPin.userData.col = discKey; } }
 
   const busy = state==='flick' || state==='flight' || state==='roll' || state==='rest' || state==='transition' || state==='holed';
   if(busy !== document.body.classList.contains('busy')) document.body.classList.toggle('busy', busy);
