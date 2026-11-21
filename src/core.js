@@ -88,6 +88,7 @@ function makeTerrain(H){
         if(ih > h) h = ih;
       }
       type = h < W ? 'water' : h < W + 0.55 ? 'sand' : 'grass';
+      if(type==='grass' && Math.hypot(x-bx, z-bz) < 10) type = 'green';
     } else {
       const dTB = Math.min(Math.hypot(x, z), Math.hypot(x-bx, z-bz));
       h = H.base + (fbm(x*0.02+H.seed, z*0.02-H.seed)-0.5)*2*H.hills*(0.2 + 0.8*smooth(3, 16, dTB));
@@ -119,7 +120,7 @@ function makeTerrain(H){
       else if(!type || type==='canyonfloor'){
         const dp = H.fw ? distToPath(x, z, H.path) : 1e9;
         const db = Math.hypot(x-bx, z-bz);
-        if(db < 9) type = 'green';
+        if(db < 10) type = 'green';
         else if(dp < H.fw/2) type = 'fair';
         else if(!type) type = H.theme==='forest' ? 'forest' : H.theme==='gorge' ? 'stone' : 'grass';
       }
