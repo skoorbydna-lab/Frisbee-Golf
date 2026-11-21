@@ -396,7 +396,9 @@ function discGeo(){ const pts = [[0,0.017],[0.05,0.016],[0.092,0.009],[0.106,0.0
 const DGEO = discGeo();
 function bright(color, glow, side){
   if(!REAL){ const m = new THREE.MeshToonMaterial({color:new THREE.Color(color), gradientMap:grad}); if(side) m.side = side; return m; }
-  return std({color:L(color), roughness:0.32, metalness:0, emissive:L(color), emissiveIntensity:glow, side:side || THREE.FrontSide});
+  const m = std({color:L(color), roughness:0.4, metalness:0, emissive:L(color), emissiveIntensity:glow*0.35, side:side || THREE.FrontSide});
+  m.toneMapped = false;   // keep the colour rich instead of washed out by the film-style tone mapping
+  return m;
 }
 function makeDisc(color){
   const g = new THREE.Group(), tilt = new THREE.Group(); g.add(tilt);

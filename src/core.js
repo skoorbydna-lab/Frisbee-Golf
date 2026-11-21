@@ -20,9 +20,9 @@ function gauss(r){ let u=0,v=0; while(u===0) u=r(); while(v===0) v=r(); return M
 
 // ---------- discs ----------
 const DISCS = {
-  driver:{name:'Driver', max:30, kd:0.0034, lv:27, turn:-1, fade:2.4, skid:0.32, color:'#ff1f6e'},
-  mid:   {name:'Mid-range', max:25, kd:0.0042, lv:24, turn:0, fade:1.2, skid:0.22, color:'#ffd000'},
-  putter:{name:'Putter', max:19, kd:0.0055, lv:21, turn:0, fade:0.6, skid:0.12, color:'#00b8ff'}
+  driver:{name:'Driver', max:30, kd:0.0034, lv:27, turn:-1, fade:2.4, skid:0.32, color:'#e8004f'},
+  mid:   {name:'Mid-range', max:25, kd:0.0042, lv:24, turn:0, fade:1.2, skid:0.22, color:'#ffb300'},
+  putter:{name:'Putter', max:19, kd:0.0055, lv:21, turn:0, fade:0.6, skid:0.12, color:'#0066ff'}
 };
 
 // ---------- the nine holes ----------
