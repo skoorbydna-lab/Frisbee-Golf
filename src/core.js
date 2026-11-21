@@ -67,6 +67,12 @@ const HOLES = [
    lighthouse:{x:-22,z:-75}, palms:true, wind:[-5,2]}
 ];
 HOLES.forEach(H=>{ H.basket = H.path[H.path.length-1]; if(H.windFactor==null) H.windFactor = 1; });
+// practice range: wide flat field, target baskets at set distances, no out of bounds
+const RANGE = {name:'Driving Range', par:0, theme:'range', diff:0, seed:5, range:true,
+  path:[[0,0],[0,-170]], fw:40, base:0.5, hills:0.15, windFactor:1, features:[],
+  baskets:[[-5,-15],[6,-30],[-8,-50],[9,-75],[-6,-100],[4,-130]],
+  trees:{count:90, clear:34, kinds:['oak','oak','pine','birch']}, rocks:0, wind:[0,0]};
+RANGE.basket = RANGE.baskets[0];
 
 // ---------- terrain ----------
 // returns a function (x,z) -> shared {h, type}
@@ -75,7 +81,8 @@ function makeTerrain(H){
   const W = H.water != null ? H.water : -999;
   const feats = H.features || [];
   const room = H.room;
-  const bx = H.basket[0], bz = H.basket[1];
+  const bx = H.basket[0], bz = H.basket[1], BL = H.baskets || [H.basket];
+  const nearB = (x,z)=>{ let d = 1e9; for(const b of BL){ const e = Math.hypot(x-b[0], z-b[1]); if(e < d) d = e; } return d; };
   return function(x, z){
     let h, type;
     if(H.sea){
@@ -88,7 +95,7 @@ function makeTerrain(H){
         if(ih > h) h = ih;
       }
       type = h < W ? 'water' : h < W + 0.55 ? 'sand' : 'grass';
-      if(type==='grass' && Math.hypot(x-bx, z-bz) < 10) type = 'green';
+      if(type==='grass' && nearB(x, z) < 10) type = 'green';
     } else {
       const dTB = Math.min(Math.hypot(x, z), Math.hypot(x-bx, z-bz));
       h = H.base + (fbm(x*0.02+H.seed, z*0.02-H.seed)-0.5)*2*H.hills*(0.2 + 0.8*smooth(3, 16, dTB));
@@ -119,7 +126,7 @@ function makeTerrain(H){
       if(h < W) type = 'water';
       else if(!type || type==='canyonfloor'){
         const dp = H.fw ? distToPath(x, z, H.path) : 1e9;
-        const db = Math.hypot(x-bx, z-bz);
+        const db = nearB(x, z);
         if(db < 10) type = 'green';
         else if(dp < H.fw/2) type = 'fair';
         else if(!type) type = H.theme==='forest' ? 'forest' : H.theme==='gorge' ? 'stone' : 'grass';
@@ -262,8 +269,8 @@ function genWarehouse(H, r, boxes, cyls, deco){
 function makeWorld(H){
   const T = makeTerrain(H);
   const O = genObstacles(H, T);
-  const by = T(H.basket[0], H.basket[1]).h;
-  return Object.assign({H, T, basket:{x:H.basket[0], y:by, z:H.basket[1]}, wind:{x:0,z:0}, wf:H.windFactor, events:[]}, O);
+  const baskets = (H.baskets || [H.basket]).map(b=>({x:b[0], y:T(b[0], b[1]).h, z:b[1]}));
+  return Object.assign({H, T, basket:baskets[0], baskets, wind:{x:0,z:0}, wf:H.windFactor, events:[]}, O);
 }
 function ev(w, e){ if(w.events.length < 8) w.events.push(e); }
 
@@ -334,7 +341,11 @@ function collide(w, f, px, py, pz, rolling){
 }
 
 function basketCheck(w, f){
-  const B = w.basket, p = f.pos, v = f.vel; const dx = p.x-B.x, dz = p.z-B.z; const dh = Math.hypot(dx,dz); const y = p.y - B.y;
+  for(const B of w.baskets){ const r = basketCheck1(w, f, B); if(r){ f.inBasket = B; return r; } }
+  return null;
+}
+function basketCheck1(w, f, B){
+  const p = f.pos, v = f.vel; const dx = p.x-B.x, dz = p.z-B.z; const dh = Math.hypot(dx,dz); const y = p.y - B.y;
   if(dh > 0.6) return null;
   if(dh < 0.42 && y > 0.72 && y < 1.48) return 'in';
   if(dh < 0.31 && y > 0.5 && y <= 0.72 && v.y < 0) return 'in';
@@ -373,7 +384,7 @@ function stepFlight(w, f, D, dt){
   ax += rgx*lat; az += rgz*lat;
   v.x += ax*dt; v.y += ay*dt; v.z += az*dt;
   p.x += v.x*dt; p.y += v.y*dt; p.z += v.z*dt;
-  f.t += dt; f.spin += dt*(20 + h); f.lat = lat;
+  f.t += dt; f.spin += dt*(20 + h); f.lat = lat; if(p.y > (f.maxY ?? -1e9)) f.maxY = p.y;
   if(f.leafT && f.t - f.leafT > 0.3) f.inLeaves = false;
   collide(w, f, px, py, pz, false);
   const b = basketCheck(w, f); if(b) return b;
@@ -383,6 +394,7 @@ function stepFlight(w, f, D, dt){
     if(su.s - prev > 0.7 && py < su.s - 0.25){ p.x = px; p.z = pz; v.x *= -0.3; v.z *= -0.3; ev(w,'thunk'); f.hit = true; f.hitT = f.t; return null; }
     p.y = su.s + 0.02;
     const ob = landType(w, f, su.on); if(ob) return ob;
+    if(!f.firstLand) f.firstLand = {x:p.x, y:p.y, z:p.z, t:f.t};
     const hs = Math.hypot(v.x, v.z), vy = -v.y;
     const gty = su.on ? 'hard' : w.T(p.x, p.z).type;
     const soft = gty==='sand' || gty==='forest';
@@ -392,9 +404,9 @@ function stepFlight(w, f, D, dt){
       f.bounces = (f.bounces||0) + 1; v.y = vy*0.28; v.x *= 0.72; v.z *= 0.72; p.y = su.s + 0.05; ev(w,'land'); return null;
     }
     // 2) roller: lands tilted on its edge and rolls away, curving towards the side it leans
-    if(!f.hit && !soft && bank > 0.32 && hs > 7){ f.edge = 1; v.x *= 0.62; v.z *= 0.62; }
+    if(!f.hit && !soft && bank > 0.32 && hs > 7){ f.edge = 1; f.rolled = true; v.x *= 0.62; v.z *= 0.62; }
     // hyzer landing: the low edge digs in, it skids short and kicks left
-    else if(!f.hit && bank < -0.32){ const k = D.skid*0.8, a = -0.35, c = Math.cos(a), sn = Math.sin(a), vx = v.x*k, vz = v.z*k; v.x = vx*c - vz*sn; v.z = vz*c + vx*sn; f.edge = 0; f.wob = 0.6; }
+    else if(!f.hit && bank < -0.32){ f.hyzerKick = true; const k = D.skid*0.8, a = -0.35, c = Math.cos(a), sn = Math.sin(a), vx = v.x*k, vz = v.z*k; v.x = vx*c - vz*sn; v.z = vz*c + vx*sn; f.edge = 0; f.wob = 0.6; }
     // 3) flat landing: slides and spins to a stop
     else { const k = f.hit ? 0.15 : soft ? D.skid*0.4 : D.skid*1.25; v.x *= k; v.z *= k; f.edge = 0; }
     v.y = 0; if(!(f.wob > 0)) f.wob = 0; f.bank = bank;
@@ -434,8 +446,8 @@ function stepRoll(w, f, dt){
   const s2 = surface(w, p.x, p.z, p.y + 0.3);
   if(s2.s > p.y + 0.6){ p.x = px; p.z = pz; v.x *= -0.3; v.z *= -0.3; }
   else p.y = s2.s + 0.02;
-  const B = w.basket; const db = Math.hypot(p.x-B.x, p.z-B.z);
-  if(db < 0.18){ const n = Math.atan2(p.z-B.z, p.x-B.x); p.x = B.x + Math.cos(n)*0.2; p.z = B.z + Math.sin(n)*0.2; v.x = v.z = 0; }
+  for(const B of w.baskets){ const db = Math.hypot(p.x-B.x, p.z-B.z);
+  if(db < 0.18){ const n = Math.atan2(p.z-B.z, p.x-B.x); p.x = B.x + Math.cos(n)*0.2; p.z = B.z + Math.sin(n)*0.2; v.x = v.z = 0; } }
   if(!f.edge) f.spin += dt*(sp*6 + 4); f.on = s2.on;
   const ob = landType(w, f, s2.on); if(ob) return ob;
   return null;
@@ -468,6 +480,6 @@ function holeWinds(tier, seed){
   });
 }
 
-return {G, rng, fbm, smooth, distToPath, DISCS, HOLES, makeTerrain, makeWorld, surface, newFlight, stepFlight, stepRoll, TOURS, makeField, cpuScore, holeWinds, OB_TYPES};
+return {G, rng, fbm, smooth, distToPath, DISCS, HOLES, RANGE, makeTerrain, makeWorld, surface, newFlight, stepFlight, stepRoll, TOURS, makeField, cpuScore, holeWinds, OB_TYPES};
 })();
 if(typeof module !== 'undefined') module.exports = Core;

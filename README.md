@@ -14,6 +14,7 @@ A first-person 3D disc golf game for phones, built with three.js.
 - **Tournaments:** Village Open → County Classic → National Championship against 7 CPU players.
 - **Pass & play:** 2–4 players on one phone; furthest from the basket throws next.
 - **Online play:** 2–4 players on their own phones. One person hosts and shares a 4-letter code; everyone else joins with it. Messages go through a free public MQTT relay (EMQX, with HiveMQ as backup), so it works on mobile data and Wi-Fi with nothing to set up. Hosts can send an invite link straight to WhatsApp.
+- **Driving range:** unlimited throws at six target baskets (15–130 m) with distance lines, adjustable wind, and a breakdown of every flick (speed, length, launch angle, aim, carry, roll, drift) plus a tip.
 - **Practice round.**
 
 ## The course (9 holes, par 31)

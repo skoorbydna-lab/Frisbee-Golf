@@ -58,6 +58,11 @@
   .lb td:first-child{border-radius:8px 0 0 8px;width:34px;text-align:center;font-weight:700}
   .lb td:last-child{border-radius:0 8px 8px 0;text-align:right}
   .lb td.rel{font-weight:700;text-align:right;width:44px}
+  #statsCard{position:fixed;left:50%;transform:translateX(-50%);top:calc(196px + env(safe-area-inset-top));width:min(94vw,420px);background:rgba(255,248,232,.94);border:3px solid var(--ink);border-radius:14px;box-shadow:0 3px 0 var(--ink);padding:7px 10px;font-size:12.5px;line-height:1.35;pointer-events:auto}
+  #statsCard .srow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  #statsCard .sbar{display:inline-block;width:70px;height:8px;border:2px solid var(--ink);border-radius:6px;overflow:hidden;background:#fff;vertical-align:middle}
+  #statsCard .sbar i{display:block;height:100%}
+  #statsCard .stip{margin-top:4px;padding-top:4px;border-top:2px dashed rgba(20,32,43,.3);font-weight:600}
   .hidden{display:none!important}
   input.name{width:100%;margin:4px 0;padding:8px 10px;border:3px solid var(--ink);border-radius:12px;font:600 16px 'Fredoka',sans-serif;-webkit-user-select:text;user-select:text;background:#fff}
   .pdot{display:inline-block;width:12px;height:12px;border-radius:50%;border:2px solid var(--ink);vertical-align:-1px;margin-right:4px}
@@ -81,10 +86,15 @@
   </div>
 </div>
 
+<div id="statsCard" class="hidden"></div>
 <div id="msg"></div>
 
 <div id="bottom" class="hidden">
   <div id="hint">Drag the view to aim · hold the disc, slide right for hyzer / left for anhyzer · flick up</div>
+  <div class="row hidden" id="rangeRow">
+    <button class="chip" id="rWind">Wind: calm</button>
+    <button class="chip" id="rFrom">Throw from: tee</button>
+  </div>
   <div class="row" id="discRow">
     <button class="chip" data-disc="driver">Driver<small>~120 m</small></button>
     <button class="chip" data-disc="mid">Mid-range<small>~85 m</small></button>
@@ -112,8 +122,9 @@
     <div id="tourList"></div>
     <button class="tour" id="onlineBtn">🌐 Online play<small>2–4 players on their own phones. Host a game and share the code.</small></button>
     <button class="tour" id="localBtn">👥 Pass &amp; play<small>2–4 players on one phone. Furthest from the basket throws next.</small></button>
+    <button class="tour" id="rangeBtn">🎯 Driving range<small>Unlimited throws at target baskets, with a breakdown of every flick.</small></button>
     <button class="tour" id="practiceBtn">Practice round<small>All 9 holes, no opponents, gentle preset winds.</small></button>
-    <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div>
+    <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div><div class="row" style="margin-top:6px"><button class="chip setS">Throw stats in rounds: Off</button></div>
     <p style="font-size:12.5px;opacity:.8;margin-top:12px">✋ Touch the disc, slide <b>right</b> for hyzer (curves left), <b>left</b> for anhyzer (curves right).<br>👆 Flick up to throw. Faster and longer flicks go further; higher flicks fly higher.<br>🎯 Drag anywhere else to look around.<br>🔭 Two fingers (or Scout) fly the camera round the course to plan your shot.</p>
   </div>
 </div>
@@ -182,7 +193,7 @@
 <div class="overlay hidden" id="pauseScreen">
   <div class="card">
     <h2>Paused</h2>
-    <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div>
+    <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div><div class="row" style="margin-top:6px"><button class="chip setS">Throw stats in rounds: Off</button></div>
     <button class="btn" id="resumeBtn">Resume</button><br>
     <button class="btn alt" id="quitBtn">Quit to menu</button>
   </div>
@@ -477,7 +488,7 @@ let W = null;            // physics world for the current hole
 let course = null;       // {group, tee, sock}
 function groundAt(x, z){ return W ? W.T(x, z).h : 0; }
 
-const TCOL = REAL ? {fair:'#7da84a', green:'#b4e04e', grass:'#5e8f37', out:'#5e8f37', forest:'#4a6a2e', stone:'#8a9264', sand:'#d8c79a', concrete:'#a9a69f', rock:'#a97f58', canyonfloor:'#c9a97c', water:'#5f7a52', gorge:'#6e655a'} : {fair:'#93d35d', green:'#c8f56a', grass:'#6db348', out:'#6db348', forest:'#55803a', stone:'#94a26c', sand:'#ecd9a4', concrete:'#bdbab2',
+const TCOL = REAL ? {fair:'#93c95a', green:'#d2f77e', grass:'#47712a', out:'#47712a', forest:'#3b5a24', stone:'#8a9264', sand:'#d8c79a', concrete:'#a9a69f', rock:'#a97f58', canyonfloor:'#c9a97c', water:'#5f7a52', gorge:'#6e655a'} : {fair:'#a8e06c', green:'#e2ff94', grass:'#559433', out:'#559433', forest:'#467030', stone:'#94a26c', sand:'#ecd9a4', concrete:'#bdbab2',
               rock:'#bb8a5d', canyonfloor:'#dcbc8b', water:'#6f8a62', gorge:'#7b6f62'};
 function buildTerrain(group){
   const H = W.H, b = W.bounds, margin = H.sea ? 80 : 230;
@@ -500,16 +511,17 @@ function buildTerrain(group){
     if(H.sea && t==='water') c.copy(seabed).multiplyScalar(Math.max(0.55, 1 + h*0.08));
     else c.set(TCOL[t] || TCOL.grass);
     if(t==='forest' && C.fbm(x*0.15, z*0.15) > 0.58) c.lerp(brown, 0.55);
-    const dbk = Math.hypot(x - W.basket.x, z - W.basket.z);
-    if(t==='green'){ c.multiplyScalar(Math.floor(dbk/2.5) % 2 ? 0.93 : 1.04); }                       // mowing rings
-    else if(dbk < 12 && t!=='water' && t!=='sand' && t!=='rock' && t!=='gorge') c.set(REAL ? '#3f6a26' : '#4f8a2e');  // darker collar
+    let dbk = 1e9; for(const b of W.baskets){ const e = Math.hypot(x - b.x, z - b.z); if(e < dbk) dbk = e; }
+    if(t==='green'){ c.multiplyScalar(Math.floor(dbk/2.5) % 2 ? 0.94 : 1.03); }                                        // mowing rings
+    else if(dbk < 12 && t!=='water' && t!=='sand' && t!=='rock' && t!=='gorge') c.set(REAL ? '#30521b' : '#3f7424');   // dark collar
+    else if(t==='fair'){ const st = Math.sin(x*0.55 + z*0.12) > 0 ? 1.05 : 0.95; c.multiplyScalar(st); }                // fairway mowing stripes
     if(!H.sea && (slope > 0.85 || t==='rock' || t==='gorge') && t!=='concrete'){
       c.copy(rockC); if(t==='gorge' && h < -18) c.multiplyScalar(0.8);
       c.multiplyScalar(0.84 + 0.16*((Math.floor(h*0.7) % 2 + 2) % 2)); // strata bands
     }
     const n = C.fbm(x*0.07, z*0.07);
-    c.multiplyScalar(t==='concrete' ? 0.96 + 0.06*n : t==='green' ? 0.97 + 0.06*n : 0.86 + 0.26*n);
-    if(REAL){ if(t==='fair'||t==='green'){ const st = Math.sin((x*0.6 + z*0.15))*0.5 + 0.5; c.multiplyScalar(0.95 + 0.07*(st > 0.5 ? 1 : 0)); } c.convertSRGBToLinear(); }
+    c.multiplyScalar(t==='concrete' ? 0.96 + 0.06*n : (t==='green' || t==='fair') ? 0.97 + 0.06*n : 0.84 + 0.24*n);
+    if(REAL) c.convertSRGBToLinear();
     col[i*3] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
@@ -660,7 +672,7 @@ function makeTee(n, par, len){
   const pad = outlined(new THREE.BoxGeometry(2.4,0.3,4.5), '#d9d2c3', 0.02, {receive:true}); pad.position.set(0, 0.0, 1.2); g.add(pad);
   const cv = document.createElement('canvas'); cv.width = 256; cv.height = 160; const x = cv.getContext('2d');
   x.fillStyle = '#ff8a1f'; x.fillRect(0,0,256,160); x.fillStyle = '#fff'; x.textAlign = 'center';
-  x.font = '700 64px Fredoka, sans-serif'; x.fillText(n, 128, 70); x.font = '600 30px Fredoka, sans-serif'; x.fillText(`Par ${par} · ${len} m`, 128, 128);
+  x.font = '700 64px Fredoka, sans-serif'; x.fillText(n, 128, 70); x.font = '600 30px Fredoka, sans-serif'; x.fillText(typeof par==='string' ? par : `Par ${par} · ${len} m`, 128, 128);
   const sign = outlined(new THREE.BoxGeometry(0.95,0.6,0.06), '#ff8a1f', 0.06); sign.position.set(-2.2, 1.15, 1.5); g.add(sign);
   const face = new THREE.Mesh(new THREE.PlaneGeometry(0.93,0.58), new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(cv)})); face.position.z = -0.032; face.rotation.y = Math.PI; sign.add(face);
   const post = outlined(new THREE.CylinderGeometry(0.04,0.04,1.1,6), '#8a5a35', 0.2); post.position.set(-2.2, 0.55, 1.55); g.add(post);
@@ -681,8 +693,9 @@ function drawMarker(txt){
 }
 
 function buildHole(i){
+  const isRange = i==='range';
   if(course){ scene.remove(course.group); course.group.traverse(o=>{ if(o.geometry && !Object.values(GEO).includes(o.geometry)) o.geometry.dispose(); }); }
-  const H = C.HOLES[i];
+  const H = isRange ? C.RANGE : C.HOLES[i];
   W = C.makeWorld(H);
   const group = new THREE.Group(); scene.add(group);
   const r = C.rng(H.seed*13 + 1);
@@ -711,7 +724,7 @@ function buildHole(i){
     const fgeo = new THREE.IcosahedronGeometry(0.09, 0); fgeo.translate(0, 0.14, 0);
     const NF = 500, flowers = new THREE.InstancedMesh(fgeo, new THREE.MeshBasicMaterial({color:'#ffffff'}), NF);
     const d = new THREE.Object3D(), fc = new THREE.Color(); let nt = 0, nf = 0;
-    const gcol = REAL ? (H.theme==='forest' ? ['#3b5a26','#47672c','#536f33'] : H.theme==='canyon' ? ['#8f8a4f','#7d8545','#9c915c'] : ['#4f7d2e','#5a8a35','#6b9440']) : H.theme==='forest' ? ['#3f6e2c','#4d7d34','#5b8a3a'] : H.theme==='canyon' ? ['#a9a35a','#8f9a4d','#b8a96a'] : ['#4e9a35','#5aa63c','#448c2e'];
+    const gcol = REAL ? (H.theme==='forest' ? ['#3b5a26','#47672c','#536f33'] : H.theme==='canyon' ? ['#8f8a4f','#7d8545','#9c915c'] : ['#3c6322','#456e28','#52782e']) : H.theme==='forest' ? ['#3f6e2c','#4d7d34','#5b8a3a'] : H.theme==='canyon' ? ['#a9a35a','#8f9a4d','#b8a96a'] : ['#4e9a35','#5aa63c','#448c2e'];
     const flowery = ['meadow','pond','hill','sea','downs'].includes(H.theme);
     for(let k=0;k<(REAL ? 40000 : 20000) && (nt<NT || nf<NF);k++){
       const x = W.bounds.minX - 20 + r()*(W.bounds.maxX-W.bounds.minX+40), z = W.bounds.minZ - 25 + r()*(W.bounds.maxZ-W.bounds.minZ+45);
@@ -726,24 +739,39 @@ function buildHole(i){
   }
   // tee, basket, windsock
   const ty = W.T(0,0).h;
-  const tee = makeTee(i+1, H.par, Math.round(Math.hypot(H.basket[0], H.basket[1]))); tee.position.set(0, ty, 0);
+  const tee = isRange ? makeTee('🎯', 'Driving range') : makeTee(i+1, H.par, Math.round(Math.hypot(H.basket[0], H.basket[1]))); tee.position.set(0, ty, 0);
   const fd = H.path[1]; tee.rotation.y = Math.atan2(-fd[0], -fd[1]); group.add(tee);
   const sock = makeWindsock(); sock.position.set(2.8, W.T(2.8, 1.5).h, 1.5); group.add(sock);
   if(H.room){ sock.position.set(R_SOCK.x, 0, R_SOCK.z); }
-  const basket = makeBasket(); basket.position.set(W.basket.x, W.basket.y, W.basket.z); group.add(basket);
+  for(const b of W.baskets){ const bk = makeBasket(); bk.position.set(b.x, b.y, b.z); group.add(bk); }
+  if(isRange) buildRangeMarks(group);
   marker.position.set(W.basket.x, W.basket.y + 2.4, W.basket.z);
-  { const N = 160, R0 = 9.88, R1 = 10.12, pos = [], idx = [];
-    for(let k=0;k<=N;k++){ const a = k/N*Math.PI*2, ca = Math.cos(a), sa = Math.sin(a);
-      for(const R of [R0, R1]){ const x = W.basket.x + ca*R, z = W.basket.z + sa*R; pos.push(x, W.T(x, z).h + 0.05, z); } }
-    for(let k=0;k<N;k++){ const i = k*2; idx.push(i, i+1, i+2, i+1, i+3, i+2); }
-    const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); rg.setIndex(idx);
-    const ring = new THREE.Mesh(rg, new THREE.MeshBasicMaterial({color:'#ffffff', side:THREE.DoubleSide, transparent:true, opacity:0.85, depthWrite:false}));
-    ring.renderOrder = 2; ring.frustumCulled = false; group.add(ring); }
   scene.fog.near = H.room ? 120 : FOG_NEAR;
   course = {group, sock};
   drawMapStatic();
 }
 const R_SOCK = {x:3, z:2.5};
+function textSprite(txt, w, h, attenuate, col){
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 128; const g = cv.getContext('2d');
+  g.font = '700 58px Fredoka, sans-serif'; g.textAlign = 'center'; g.lineJoin = 'round';
+  g.lineWidth = 12; g.strokeStyle = '#14202b'; g.strokeText(txt, 128, 82); g.fillStyle = col || '#fff'; g.fillText(txt, 128, 82);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv), transparent:true, depthTest:attenuate, sizeAttenuation:attenuate}));
+  sp.scale.set(w, h, 1); return sp;
+}
+// distance lines every 25 m and a label over each target basket
+function buildRangeMarks(group){
+  const lineMat = new THREE.MeshBasicMaterial({color:'#ffffff', transparent:true, opacity:0.8, depthWrite:false});
+  for(let d=25; d<=150; d+=25){
+    const N = 40, pos = [], idx = [];
+    for(let k=0;k<=N;k++){ const x = -20 + 40*k/N; for(const dz of [-0.18, 0.18]){ const z = -d + dz; pos.push(x, W.T(x, z).h + 0.04, z); } }
+    for(let k=0;k<N;k++){ const q = k*2; idx.push(q, q+1, q+2, q+1, q+3, q+2); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+    const m = new THREE.Mesh(g, lineMat); m.renderOrder = 2; group.add(m);
+    for(const sx of [-22, 22]){ const sp = textSprite(`${d} m`, 3.2, 1.6, true); sp.position.set(sx, W.T(sx, -d).h + 1.4, -d); group.add(sp);
+      const post = outlined(new THREE.CylinderGeometry(0.06,0.06,1.2,6), '#ffffff', 0.15); post.position.set(sx, W.T(sx,-d).h + 0.6, -d); group.add(post); }
+  }
+  for(const b of W.baskets){ const sp = textSprite(`${Math.round(Math.hypot(b.x, b.z))} m`, 0.11, 0.055, false, '#ffe600'); sp.position.set(b.x, b.y + 2.3, b.z); sp.renderOrder = 10; group.add(sp); }
+}
 
 // ================= minimap =================
 const map = $('map'), mctx = map.getContext('2d'), mapStatic = document.createElement('canvas');
@@ -755,7 +783,7 @@ function drawMapStatic(){
   const s = Math.min((Wd-2*pad)/(b.maxX-b.minX), (Hd-2*pad)/(b.maxZ-b.minZ)), cx = (b.minX+b.maxX)/2, cz = (b.minZ+b.maxZ)/2;
   mapTf = {s, d, f:(x,z)=>[Wd/2 + (x-cx)*s, Hd/2 + (z-cz)*s]};
   const g = mapStatic.getContext('2d'), img = g.createImageData(Wd, Hd), col = new THREE.Color();
-  const MC = {fair:'#93d35d', green:'#d4ff70', grass:'#5a9e3f', out:'#5a9e3f', forest:'#3f6e2c', stone:'#7f925c', sand:'#ecd9a4', concrete:'#c8c5bd', rock:'#a07750', canyonfloor:'#d9b98a', water:'#3fa4e8', gorge:'#3a3029'};
+  const MC = {fair:'#a8e06c', green:'#eaffa0', grass:'#4a8a30', out:'#4a8a30', forest:'#35602a', stone:'#7f925c', sand:'#ecd9a4', concrete:'#c8c5bd', rock:'#a07750', canyonfloor:'#d9b98a', water:'#3fa4e8', gorge:'#3a3029'};
   for(let py=0; py<Hd; py+=1) for(let px=0; px<Wd; px+=1){
     const x = cx + (px - Wd/2)/s, z = cz + (py - Hd/2)/s, t = W.T(x, z);
     col.set(MC[t.type] || MC.grass); const k = (py*Wd + px)*4;
@@ -767,8 +795,7 @@ function drawMapStatic(){
   g.fillStyle = '#4b5660';
   for(const bx of W.boxes){ if(bx.kind==='roof'||bx.kind==='truss') continue; const [x0,y0] = mapTf.f(bx.min[0], bx.min[2]), [x1,y1] = mapTf.f(bx.max[0], bx.max[2]); g.fillRect(x0, y0, Math.max(1, x1-x0), Math.max(1, y1-y0)); }
   for(const c of W.cyls){ const [px,py] = mapTf.f(c.x, c.z); g.beginPath(); g.arc(px, py, Math.max(1.5*d, c.r*s), 0, 7); g.fill(); }
-  const [bx, by] = mapTf.f(W.basket.x, W.basket.z);
-  g.fillStyle = '#ffcc1f'; g.strokeStyle = '#14202b'; g.lineWidth = 1.5*d; g.beginPath(); g.arc(bx, by, 3.5*d, 0, 7); g.fill(); g.stroke();
+  for(const b of W.baskets){ const [bx, by] = mapTf.f(b.x, b.z); g.fillStyle = '#ff3d00'; g.strokeStyle = '#14202b'; g.lineWidth = 1.5*d; g.beginPath(); g.arc(bx, by, 3.5*d, 0, 7); g.fill(); g.stroke(); }
 }
 function drawMap(){
   if(!mapTf) return; const d = mapTf.d;
@@ -796,6 +823,7 @@ const SET_KEY = 'discgolf-settings';
 let settings = (()=>{ try{ return Object.assign({invX:false, invY:false}, JSON.parse(localStorage.getItem(SET_KEY))||{}); }catch(e){ return {invX:false, invY:false}; } })();
 function renderSettings(){
   document.querySelectorAll('.setX').forEach(b=>{ b.textContent = 'Invert left/right: ' + (settings.invX ? 'On' : 'Off'); b.classList.toggle('on', settings.invX); });
+  document.querySelectorAll('.setS').forEach(b=>{ b.textContent = 'Throw stats in rounds: ' + (settings.stats ? 'On' : 'Off'); b.classList.toggle('on', !!settings.stats); });
   document.querySelectorAll('.setG').forEach(b=>{ b.textContent = 'Graphics: ' + (REAL ? 'Realistic' : 'Cartoon') + ' (tap to switch)'; });
   document.querySelectorAll('.setY').forEach(b=>{ b.textContent = 'Invert up/down: ' + (settings.invY ? 'On' : 'Off'); b.classList.toggle('on', settings.invY); });
 }
@@ -805,6 +833,7 @@ document.querySelectorAll('.setG').forEach(b=>b.addEventListener('click', ()=>{
   if(state!=='menu' && !confirmReload) { confirmReload = true; b.textContent = 'Tap again: restarts the game'; return; }
   settings.gfx = REAL ? 'toon' : 'real'; try{ localStorage.setItem(SET_KEY, JSON.stringify(settings)); }catch(e){} location.reload(); }));
 let confirmReload = false;
+document.querySelectorAll('.setS').forEach(b=>b.addEventListener('click', ()=>{ settings.stats = !settings.stats; try{ localStorage.setItem(SET_KEY, JSON.stringify(settings)); }catch(e){} renderSettings(); }));
 renderSettings();
 let mode = 'practice', tier = -1, field = [], winds = [], you = null, players = [], cur = 0;
 const PCOL = ['#ff8a1f','#2a8fd6','#3fbf5f','#c75bd6'];
@@ -832,6 +861,7 @@ function renderMenu(){
   });
 }
 function startRound(m, k, names){
+  $('rangeRow').classList.add('hidden'); $('statsCard').classList.add('hidden');
   if(!actx) initAudio();
   mode = m; tier = m==='tour' ? k : -1;
   const seed = (Date.now() & 0xffffff) ^ 0x5bd1;
@@ -856,17 +886,27 @@ let windNow = {x:0, z:0, sp:0, base:0};
 
 function setDisc(k){ discKey = k; document.querySelectorAll('[data-disc]').forEach(b=>b.classList.toggle('on', b.dataset.disc===k)); for(const j in held) held[j].visible = (j===k && (state==='aim' || state==='flick')); }
 document.querySelectorAll('[data-disc]').forEach(b=>b.addEventListener('click', ()=>setDisc(b.dataset.disc)));
-function distToBasket(p){ return Math.hypot(p.x - W.basket.x, p.z - W.basket.z); }
+function targetOf(p){ if(mode!=='range') return W.basket; let best = W.baskets[0], bd = 1e9; for(const b of W.baskets){ const e = Math.hypot(p.x-b.x, p.z-b.z); if(e < bd){ bd = e; best = b; } } return best; }
+function distToBasket(p){ const B = targetOf(p); return Math.hypot(p.x - B.x, p.z - B.z); }
 function faceBasket(){
-  let dx = W.basket.x - lie.x, dz = W.basket.z - lie.z, d = Math.hypot(dx, dz);
-  if(d < 1.5){ const ux = d > 0.01 ? -dx/d : 0, uz = d > 0.01 ? -dz/d : 1; lie.x = W.basket.x + ux*1.5; lie.z = W.basket.z + uz*1.5; lie.y = C.surface(W, lie.x, lie.z, lie.y + 1).s; dx = W.basket.x - lie.x; dz = W.basket.z - lie.z; d = 1.5; }
+  if(mode==='range' && Math.hypot(lie.x, lie.z) < 1){ yaw = 0; pitch = 0.04; eyeH = 1.7; return; }
+  const B = targetOf(lie);
+  let dx = B.x - lie.x, dz = B.z - lie.z, d = Math.hypot(dx, dz);
+  if(d < 1.5){ const ux = d > 0.01 ? -dx/d : 0, uz = d > 0.01 ? -dz/d : 1; lie.x = B.x + ux*1.5; lie.z = B.z + uz*1.5; lie.y = C.surface(W, lie.x, lie.z, lie.y + 1).s; dx = B.x - lie.x; dz = B.z - lie.z; d = 1.5; }
   yaw = Math.atan2(-dx, -dz);
   eyeH = d < 10 ? 1.25 + 0.45*(d/10) : 1.7;
-  const dy = (W.basket.y + 1.05) - (lie.y + eyeH);
+  const dy = (B.y + 1.05) - (lie.y + eyeH);
   pitch = d < 25 ? Math.max(-0.6, Math.atan2(dy, d) + 0.04) : Math.max(-0.45, Math.min(0.3, Math.atan2(dy, d)*0.7 + 0.04));
 }
-function autoDisc(){ const d = distToBasket(lie); setDisc(d < 22 ? 'putter' : d < 75 ? 'mid' : 'driver'); }
+function autoDisc(){ if(mode==='range') return setDisc(discKey); const d = distToBasket(lie); setDisc(d < 22 ? 'putter' : d < 75 ? 'mid' : 'driver'); }
 function updateHUD(){
+  if(mode==='range'){
+    $('holeName').textContent = 'Driving Range';
+    $('holeMeta').textContent = `Throw ${range.n + 1} · ${C.DISCS[discKey].name}`;
+    const b = range.best, f = k=>b[k] ? `${b[k].toFixed(0)} m` : '–';
+    $('dist').textContent = `Best · Driver ${f('driver')} · Mid ${f('mid')} · Putter ${f('putter')}`;
+    return;
+  }
   const H = C.HOLES[holeIdx];
   $('holeName').textContent = `Hole ${holeIdx+1}/9 · ${H.name}`;
   $('holeMeta').innerHTML = (multi() ? `<span class="pdot" style="background:${you.color}"></span><b style="font-size:14px">${esc(you.name)}</b> · ` : '') + `Par ${H.par} · Throw ${strokes+1}`;
@@ -1006,7 +1046,7 @@ canvas.addEventListener('pointerdown', e=>{
   if(state!=='aim' || gest) return;
   const ds = discScreen(), onDisc = Math.hypot(e.clientX-ds.x, e.clientY-ds.y) < ds.r;
   gest = {id:e.pointerId, pts:[[e.clientX, e.clientY, performance.now()]], mode:onDisc ? 'hold' : 'aim', lx:e.clientX, ly:e.clientY};
-  if(onDisc){ state = 'flick'; holdTilt = tiltFromX(e.clientX); $('powerLabel').textContent = tiltName(holdTilt) + ' · flick up'; $('power').style.width = '0%'; }
+  if(onDisc){ if(mode!=='range') $('statsCard').classList.add('hidden'); state = 'flick'; holdTilt = tiltFromX(e.clientX); $('powerLabel').textContent = tiltName(holdTilt) + ' · flick up'; $('power').style.width = '0%'; }
 });
 canvas.addEventListener('pointermove', e=>{
   if(ptrs.has(e.pointerId)) ptrs.set(e.pointerId, {x:e.clientX, y:e.clientY});
@@ -1059,7 +1099,7 @@ function analyseFlick(pts){
   const lengthP = Math.max(0, Math.min(1, (lowY - b[1])/(0.55*H)));
   const pw = Math.max(0.03, Math.min(1, 0.55*speedP + 0.45*lengthP));
   const ex = b[0] + (b[0]-a[0])*0.4, ey = b[1] + (b[1]-a[1])*0.4;
-  return {power:pw, rel:holdTilt, endX:b[0], endY:b[1], aimX:Math.max(0, Math.min(innerWidth, ex)), aimY:Math.max(0, Math.min(innerHeight, ey))};
+  return {power:pw, rel:holdTilt, speedV:Math.hypot(vx,vy), lenFrac:(lowY - b[1])/H, speedP, lengthP, endX:b[0], endY:b[1], aimX:Math.max(0, Math.min(innerWidth, ex)), aimY:Math.max(0, Math.min(innerHeight, ey))};
 }
 function drawSwipe(dt){
   sctx.clearRect(0, 0, innerWidth, innerHeight);
@@ -1093,11 +1133,54 @@ function doThrow(f){
   for(const k in discs) discs[k].visible = (k===discKey);
   for(const k in held) held[k].visible = false;
   trailPts = [[p.x, p.y, p.z]];
+  lastFlick = {f, disc:discKey, launchDeg:launchPitch*180/Math.PI, aimDeg:yawOff*180/Math.PI, dir:ty, sx:lie.x, sz:lie.z, sy:p.y};
+  $('statsCard').classList.add('hidden');
   state = 'flight'; chase.dir = null;
   $('power').style.width = (power*100).toFixed(0) + '%';
   const curveTxt = release < -0.15 ? ' · hyzer ↶' : release > 0.15 ? ' · anhyzer ↷' : '';
   $('powerLabel').textContent = `Power ${(power*100).toFixed(0)}%${curveTxt}`;
   sfx.whoosh(); outcome = null;
+}
+
+let lastFlick = null, statsTimer = 0;
+function flickTip(L, R){
+  const f = L.f;
+  if(R.kind==='chains') return 'In the chains! Remember that flick.';
+  if(L.launchDeg > 24) return `Launch of ${L.launchDeg.toFixed(0)}° is too steep, so the disc stalls. End your flick lower on the screen (aim for 10–18°).`;
+  if(L.launchDeg < 5 && L.disc!=='putter') return 'Very flat launch. End your flick a little higher on the screen for more carry.';
+  if(f.speedP < 0.45 && L.disc!=='putter') return 'Flick faster: snap the last part of the swipe for more power.';
+  if(f.lengthP < 0.4 && L.disc!=='putter') return 'Longer swipe: start lower and follow through further up the screen.';
+  if(Math.abs(L.aimDeg) > 8) return `Your flick angled ${Math.abs(L.aimDeg).toFixed(0)}° ${L.aimDeg > 0 ? 'right' : 'left'} of where you were looking. Flick straight up to throw where you aim.`;
+  if(R.side < -8 && Math.abs(f.rel) < 0.15) return `It drifted ${(-R.side).toFixed(0)} m left. Aim a little right, or add some anhyzer (slide left before flicking).`;
+  if(R.side > 8 && Math.abs(f.rel) < 0.15) return `It drifted ${R.side.toFixed(0)} m right. Aim a little left, or add some hyzer (slide right before flicking).`;
+  if(R.rolled) return 'It rolled on its edge after landing (anhyzer). Flatten the angle if you want it to stop sooner.';
+  return `Good throw. Power ${(f.power*100).toFixed(0)}%: repeat it to build consistency.`;
+}
+function showStats(kind){
+  if(!lastFlick || !flying) return;
+  if(mode!=='range' && !settings.stats) return;
+  const L = lastFlick, f = L.f, F = flying;
+  const end = kind==='chains' && F.inBasket ? F.inBasket : F.pos;
+  const dx = end.x - L.sx, dz = end.z - L.sz, total = Math.hypot(dx, dz);
+  const carry = F.firstLand ? Math.hypot(F.firstLand.x - L.sx, F.firstLand.z - L.sz) : total;
+  const side = dx*Math.cos(L.dir) - dz*Math.sin(L.dir);
+  const R = {kind, total, carry, roll:Math.max(0, total - carry), side, rolled:!!F.rolled};
+  const tiltTxt = f.rel < -0.6 ? 'Big hyzer' : f.rel < -0.05 ? 'Hyzer' : f.rel > 0.6 ? 'Big anhyzer' : f.rel > 0.05 ? 'Anhyzer' : 'Flat';
+  const land = [F.bounces ? `${F.bounces} skip${F.bounces>1?'s':''}` : '', F.rolled ? 'roller' : '', F.hyzerKick ? 'hyzer skid' : ''].filter(Boolean).join(', ') || 'slid to a stop';
+  const res = kind==='ob' ? 'Out of bounds' : kind==='chains' ? `Chains at ${total.toFixed(0)} m 🎯` : `${total.toFixed(0)} m <span style="opacity:.7">(${carry.toFixed(0)} carry + ${R.roll.toFixed(0)} roll)</span>`;
+  const drift = Math.abs(side) < 1.5 ? 'dead straight' : `${Math.abs(side).toFixed(0)} m ${side < 0 ? 'left' : 'right'}`;
+  const bar = (v,c)=>`<span class="sbar"><i style="width:${(v*100).toFixed(0)}%;background:${c}"></i></span>`;
+  $('statsCard').innerHTML = `
+    <div class="srow"><b>Power ${(f.power*100).toFixed(0)}%</b> ${bar(f.power,'#ff8a1f')}</div>
+    <div class="srow">Speed ${bar(f.speedP,'#2a8fd6')} ${f.speedV.toFixed(1)} screens/s</div>
+    <div class="srow">Length ${bar(f.lengthP,'#3fbf5f')} ${(f.lenFrac*100).toFixed(0)}% of screen</div>
+    <div class="srow">${tiltTxt} · launch ${L.launchDeg.toFixed(0)}° · aim ${Math.abs(L.aimDeg) < 1 ? 'straight' : Math.abs(L.aimDeg).toFixed(0) + '° ' + (L.aimDeg > 0 ? 'right' : 'left')} · ${C.DISCS[L.disc].name}</div>
+    <div class="srow"><b>${res}</b></div>
+    <div class="srow">${drift} · ${Math.max(0, (F.maxY ?? L.sy) - L.sy + 1.5).toFixed(0)} m high · ${land}</div>
+    <div class="stip">💡 ${flickTip(L, R)}</div>`;
+  $('statsCard').classList.remove('hidden');
+  statsTimer = mode==='range' ? 0 : 5;
+  if(mode==='range' && kind!=='ob'){ const k = L.disc; if(!range.best[k] || total > range.best[k]) range.best[k] = total; }
 }
 
 const OB_MSG = {'ob-water':'Splash! 💦', 'ob-gorge':'Into the gorge!', 'ob-roof':'Stuck up there!', 'ob-out':'Out of bounds'};
@@ -1108,6 +1191,8 @@ function handleEvent(e){
   if(OB_MSG[e]) return outOfBounds(e);
 }
 function toRest(){
+  showStats('lie');
+  if(mode==='range'){ state = 'rest'; restTimer = 1.0; lastThrowDist = Math.hypot(flying.pos.x - lastLie.x, flying.pos.z - lastLie.z); flash(`${lastThrowDist.toFixed(0)} m`, 1.3); outcome = range.from==='tee' ? 'tee' : 'lie'; range.n++; return; }
   state = 'rest'; restTimer = 1.0;
   lastThrowDist = Math.hypot(flying.pos.x - lastLie.x, flying.pos.z - lastLie.z);
   const d = distToBasket(flying.pos);
@@ -1115,6 +1200,8 @@ function toRest(){
   outcome = 'lie';
 }
 function outOfBounds(e){
+  showStats('ob');
+  if(mode==='range'){ sfx.thunk(); state = 'rest'; restTimer = 1.2; flash('Out of the range', 1.2); outcome = 'tee'; range.n++; return; }
   if(e==='ob-water') sfx.splash(); else sfx.thunk();
   state = 'rest'; restTimer = 1.9; flying.vel.x = flying.vel.y = flying.vel.z = 0;
   if(e==='ob-water' || e==='ob-gorge') for(const k in discs) discs[k].visible = false;
@@ -1123,8 +1210,15 @@ function outOfBounds(e){
 }
 const NAMES = {'-3':'Albatross!','-2':'Eagle!','-1':'Birdie!','0':'Par','1':'Bogey','2':'Double bogey'};
 function holed(){
+  if(mode==='range'){
+    state = 'rest'; restTimer = 1.8; sfx.chains(); showStats('chains'); range.n++;
+    const B = flying.inBasket || W.basket; flying.pos.x = B.x + 0.08; flying.pos.y = B.y + 0.6; flying.pos.z = B.z; flying.vel.x = flying.vel.y = flying.vel.z = 0;
+    flash(`Chains! 🎯<br><span style="font-size:20px">${Math.hypot(B.x - lastLie.x, B.z - lastLie.z).toFixed(0)} m</span>`, 1.7); sfx.cheer(); outcome = 'tee'; return;
+  }
   state = 'holed'; sfx.chains();
-  flying.pos.x = W.basket.x + 0.08; flying.pos.y = W.basket.y + 0.6; flying.pos.z = W.basket.z; flying.vel.x = flying.vel.y = flying.vel.z = 0;
+  const HB = flying.inBasket || W.basket;
+  flying.pos.x = HB.x + 0.08; flying.pos.y = HB.y + 0.6; flying.pos.z = HB.z; flying.vel.x = flying.vel.y = flying.vel.z = 0;
+  showStats('chains');
   const diff = strokes - C.HOLES[holeIdx].par;
   you.scores[holeIdx] = strokes; you.done = true;
   const label = strokes===1 ? 'ACE!!' : (NAMES[diff] || `+${diff}`);
@@ -1197,11 +1291,34 @@ $('nextBtn').addEventListener('click', ()=>{
   if(mode==='online'){ if(!net.host) return; netSend({t:'hole', i:holeIdx + 1}); }
   if(holeIdx === C.HOLES.length - 1) finishRound(); else startHole(holeIdx + 1);
 });
-function toMenu(){ clearSession(); netClose(); $('skipBar').classList.add('hidden'); $('waitBar').classList.add('hidden'); $('scoutBar').classList.add('hidden'); $('passScreen').classList.add('hidden'); while(others.children.length) others.remove(others.children[0]); state = 'menu'; $('top').classList.add('hidden'); $('bottom').classList.add('hidden'); $('holeScreen').classList.add('hidden'); $('pauseScreen').classList.add('hidden'); renderMenu(); $('menuScreen').classList.remove('hidden'); for(const k in held) held[k].visible = false; }
+function toMenu(){ $('rangeRow').classList.add('hidden'); $('statsCard').classList.add('hidden'); clearSession(); netClose(); $('skipBar').classList.add('hidden'); $('waitBar').classList.add('hidden'); $('scoutBar').classList.add('hidden'); $('passScreen').classList.add('hidden'); while(others.children.length) others.remove(others.children[0]); state = 'menu'; $('top').classList.add('hidden'); $('bottom').classList.add('hidden'); $('holeScreen').classList.add('hidden'); $('pauseScreen').classList.add('hidden'); renderMenu(); $('menuScreen').classList.remove('hidden'); for(const k in held) held[k].visible = false; }
 $('menuBtn').addEventListener('click', ()=>{ exitScout(); $('pauseScreen').classList.remove('hidden'); });
 $('resumeBtn').addEventListener('click', ()=>$('pauseScreen').classList.add('hidden'));
 $('quitBtn').addEventListener('click', toMenu);
 $('practiceBtn').addEventListener('click', ()=>startRound('practice', -1));
+let range = {n:0, best:{}, from:'tee', wind:0};
+function startRange(){
+  if(!actx) initAudio();
+  mode = 'range'; tier = -1; field = []; players = [mkPlayer('You', 0)]; you = players[0]; cur = 0;
+  range = {n:0, best:range.best || {}, from:'tee', wind:0}; winds = [{x:0, z:0}]; holeIdx = 0; strokes = 0; lastThrowDist = 0;
+  $('menuScreen').classList.add('hidden'); $('top').classList.remove('hidden'); $('bottom').classList.remove('hidden');
+  $('board').classList.add('hidden'); $('rangeRow').classList.remove('hidden');
+  const ld = $('loading'); ld.classList.remove('hidden');
+  setTimeout(()=>{
+    buildHole('range'); lie.set(0, W.T(0,0).h + 0.15, 0); lastLie.copy(lie);
+    faceBasket(); state = 'aim'; setDisc('driver'); flying = null; trailPts = []; updateTrail();
+    renderRangeBtns(); updateHUD(); ld.classList.add('hidden');
+    flash('Driving range<br><span style="font-size:20px">Throw as much as you like</span>', 2);
+  }, 30);
+}
+function renderRangeBtns(){
+  $('rWind').textContent = 'Wind: ' + ['calm','light','strong'][range.wind];
+  $('rFrom').textContent = 'Throw from: ' + (range.from==='tee' ? 'tee' : 'where it lands');
+}
+$('rangeBtn').addEventListener('click', startRange);
+$('rWind').addEventListener('click', ()=>{ range.wind = (range.wind + 1) % 3; const sp = [0, 3, 7][range.wind], a = Math.random()*Math.PI*2; winds = [{x:Math.sin(a)*sp, z:Math.cos(a)*sp}]; renderRangeBtns(); });
+$('rFrom').addEventListener('click', ()=>{ range.from = range.from==='tee' ? 'lie' : 'tee'; if(range.from==='tee' && (state==='aim')){ lie.set(0, W.T(0,0).h + 0.15, 0); faceBasket(); } renderRangeBtns(); });
+$('statsCard').addEventListener('click', ()=>$('statsCard').classList.add('hidden'));
 let localN = 2, localNames = (()=>{ try{ return JSON.parse(localStorage.getItem('discgolf-names')) || []; }catch(e){ return []; } })();
 function renderSetup(){
   document.querySelectorAll('[data-n]').forEach(b=>b.classList.toggle('on', +b.dataset.n===localN));
@@ -1221,7 +1338,7 @@ $('goLocal').addEventListener('click', ()=>{
 function moveToLie(){
   const fade = $('fade'); fade.style.opacity = 1; state = 'transition';
   setTimeout(()=>{
-    if(outcome==='lie') lie.set(flying.pos.x, flying.pos.y - 0.02, flying.pos.z); else lie.copy(lastLie);
+    if(outcome==='tee') lie.set(0, W.T(0,0).h + 0.15, 0); else if(outcome==='lie') lie.set(flying.pos.x, flying.pos.y - 0.02, flying.pos.z); else lie.copy(lastLie);
     if(mode==='online' && cur===myIdx){ savePlayer(); netSendThrow(outcome); }
     for(const k in discs) discs[k].visible = false;
     trailPts = []; updateTrail();
@@ -1704,8 +1821,9 @@ function frame(){
   const focus = (state==='aim' || state==='flick') ? tmp.set(lie.x - Math.sin(yaw)*22, lie.y, lie.z - Math.cos(yaw)*22) : (flying ? tmp.set(flying.pos.x, flying.pos.y, flying.pos.z) : tmp.copy(lie));
   sun.position.copy(focus).add(SUN_OFF); sun.target.position.copy(focus); sun.target.updateMatrixWorld();
   sky.position.copy(camera.position);
-  marker.visible = state!=='holed';
+  marker.visible = state!=='holed' && mode!=='range';
 
+  if(statsTimer > 0){ statsTimer -= dt; if(statsTimer <= 0) $('statsCard').classList.add('hidden'); }
   if(state==='replay') stepReplay(dt);
   if(mode==='online' && flying && (state==='flight' || state==='roll' || state==='rest') && cur===myIdx && throwPath){
     recT += dt; recAcc += dt;
