@@ -152,7 +152,11 @@
     <div id="olLobby" class="hidden">
       <p>Game code</p>
       <div class="big" id="olCodeShow" style="letter-spacing:6px">----</div>
-      <p style="font-size:12.5px;opacity:.8">Friends tap Online play → type this code → Join.</p>
+      <div id="olShare" style="display:flex;gap:6px;justify-content:center;margin:6px 0">
+        <button class="btn" id="olWhatsApp" style="margin:0;background:#25d366">📲 Invite on WhatsApp</button>
+        <button class="btn alt" id="olMore" style="margin:0">Share…</button>
+      </div>
+      <p style="font-size:12.5px;opacity:.8">Friends tap the invite link, or open Online play and type the code. Keep this screen open while they join.</p>
       <table class="lb" id="olPlayers"></table>
       <button class="btn" id="olGo">Start game</button>
     </div>
@@ -182,7 +186,7 @@
 
 <script>/*CORE*/</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script async src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script async src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
 <script>
 (function(){
 'use strict';
@@ -1212,66 +1216,123 @@ function moveToLie(){
   }, 320);
 }
 
-// ================= online play (PeerJS, phone to phone) =================
+// ================= online play (MQTT relay: works on any network) =================
 let myIdx = 0, throwPath = null, recT = 0, recAcc = 0, netQueue = [], replay = null;
-const net = {peer:null, host:false, conns:[], conn:null, lobby:[], code:'', started:false};
+const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
 const CODE_CH = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const net = {client:null, host:false, id:'', code:'', topic:'', broker:0, lobby:[], started:false, away:{}, joinTimer:null};
+function newId(){ return Array.from({length:10}, ()=>'abcdefghijkmnopqrstuvwxyz23456789'[Math.floor(Math.random()*33)]).join(''); }
 function olStatus(t){ $('olStatus').textContent = t; }
-function netClose(){ try{ net.conns.forEach(c=>c.close()); net.conn && net.conn.close(); net.peer && net.peer.destroy(); }catch(e){} Object.assign(net, {peer:null, host:false, conns:[], conn:null, lobby:[], code:'', started:false}); }
-function netSend(msg){ try{ if(net.host) net.conns.forEach(c=>{ if(c.open) c.send(msg); }); else if(net.conn && net.conn.open) net.conn.send(msg); }catch(e){} }
-function peerReady(){ if(window.Peer) return true; olStatus('Online play needs the GitHub Pages version of the game (it can\'t connect from inside Claude).'); return false; }
+function libReady(){ if(window.mqtt) return true; olStatus('Online play needs the GitHub Pages version of the game (it can\'t connect from inside Claude).'); return false; }
 function myName(){ const n = $('olName').value.trim() || 'Player'; try{ localStorage.setItem('discgolf-olname', n); }catch(e){} return n.slice(0,14); }
+function netSend(msg){ if(!net.client) return; msg.from = net.id; try{ net.client.publish(net.topic, JSON.stringify(msg), {qos:1}); }catch(e){} }
+function netClose(){
+  clearTimeout(net.joinTimer);
+  if(net.client){ try{ net.client.publish(net.topic, JSON.stringify({t:'bye', from:net.id}), {qos:1}); }catch(e){} const c = net.client; setTimeout(()=>{ try{ c.end(true); }catch(e){} }, 300); }
+  Object.assign(net, {client:null, host:false, code:'', topic:'', lobby:[], started:false, away:{}});
+  releaseWake();
+}
+// keep the screen awake during online games so the connection doesn't drop
+let wakeLock = null;
+async function keepAwake(){ try{ if(navigator.wakeLock && !wakeLock){ wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', ()=>{ wakeLock = null; }); } }catch(e){} }
+function releaseWake(){ try{ wakeLock && wakeLock.release(); }catch(e){} wakeLock = null; }
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && net.client){ keepAwake(); if(net.started) netSend({t:'back'}); else if(!net.host) netSend({t:'hello', name:myName()}); else netSend({t:'lobby', lobby:net.lobby}); } });
+
+// connect to a broker; resolves with the client, or null after a timeout
+function connectBroker(i, code){
+  return new Promise(res=>{
+    const topic = 'frisbee-golf-skoorbydna/v1/' + code;
+    let done = false;
+    const c = window.mqtt.connect(BROKERS[i], {clientId:'fg_' + net.id, clean:false, keepalive:20, reconnectPeriod:2500, connectTimeout:8000,
+      will:{topic, payload:JSON.stringify({t:'bye', from:net.id}), qos:1, retain:false}});
+    const fail = ()=>{ if(done) return; done = true; try{ c.end(true); }catch(e){} res(null); };
+    const timer = setTimeout(fail, 9000);
+    c.on('connect', ()=>{ c.subscribe(topic, {qos:1}, err=>{ if(done) return; if(err) return fail(); done = true; clearTimeout(timer); res(c); }); });
+    c.on('error', ()=>{});
+    c.on('message', (t, buf)=>{ if(net.client!==c) return; let m; try{ m = JSON.parse(buf.toString()); }catch(e){ return; } if(m.from === net.id) return; onNet(m); });
+    c.on('reconnect', ()=>{ if(net.client===c && state!=='menu') olStatus('Reconnecting…'); });
+    c.on('connect', ()=>{ if(net.client===c){ olStatus(net.started ? '' : $('olStatus').textContent==='Reconnecting…' ? 'Back online' : $('olStatus').textContent); if(net.started) netSend({t:'back'}); } });
+  });
+}
+function inviteURL(){ return location.origin + location.pathname + '?join=' + net.code + '&b=' + net.broker; }
 function renderLobby(){
-  $('olPlayers').innerHTML = net.lobby.map((p,i)=>`<tr class="${i===myIdx?'me':''}"><td><span class="pdot" style="background:${PCOL[i]}"></span></td><td>${esc(p.name)}${i===0 ? ' (host)' : ''}</td><td class="rel"></td></tr>`).join('');
+  $('olPlayers').innerHTML = net.lobby.map((p,i)=>`<tr class="${p.pid===net.id?'me':''}"><td><span class="pdot" style="background:${PCOL[i]}"></span></td><td>${esc(p.name)}${i===0 ? ' (host)' : ''}</td><td class="rel"></td></tr>`).join('');
   $('olGo').classList.toggle('hidden', !net.host);
+  $('olShare').classList.toggle('hidden', !net.host);
   $('olGo').disabled = net.lobby.length < 2;
 }
-function hostGame(){
-  if(!peerReady()) return; netClose();
-  const code = Array.from({length:4}, ()=>CODE_CH[Math.floor(Math.random()*CODE_CH.length)]).join('');
+async function hostGame(){
+  if(!libReady()) return; netClose();
+  net.id = newId(); net.host = true;
+  net.code = Array.from({length:4}, ()=>CODE_CH[Math.floor(Math.random()*CODE_CH.length)]).join('');
+  net.topic = 'frisbee-golf-skoorbydna/v1/' + net.code;
   olStatus('Setting up…');
-  const peer = new Peer('frisbee-golf-' + code); net.peer = peer; net.host = true; net.code = code;
-  peer.on('open', ()=>{ net.lobby = [{name:myName(), pid:peer.id}]; myIdx = 0; $('olCodeShow').textContent = code; $('olStart').classList.add('hidden'); $('olLobby').classList.remove('hidden'); olStatus('Waiting for players to join…'); renderLobby(); });
-  peer.on('error', e=>{ if(e.type==='unavailable-id') return hostGame(); olStatus('Connection problem: ' + e.type); });
-  peer.on('connection', conn=>{
-    conn.on('data', msg=>{
-      if(msg.t==='hello'){
-        if(net.started || net.lobby.length >= 4){ conn.send({t:'full'}); setTimeout(()=>conn.close(), 300); return; }
-        net.conns.push(conn); net.lobby.push({name:String(msg.name||'Player').slice(0,14), pid:conn.peer});
-        renderLobby(); netSend({t:'lobby', lobby:net.lobby}); olStatus(`${net.lobby.length} players ready`);
-        return;
-      }
-      net.conns.forEach(c=>{ if(c!==conn && c.open) c.send(msg); });   // relay to everyone else
-      onNet(msg);
-    });
-    conn.on('close', ()=>{
-      net.conns = net.conns.filter(c=>c!==conn);
-      const i = net.lobby.findIndex(p=>p.pid===conn.peer); if(i < 0) return;
-      if(!net.started){ net.lobby.splice(i,1); renderLobby(); netSend({t:'lobby', lobby:net.lobby}); }
-      else { netSend({t:'left', idx:i}); onNet({t:'left', idx:i}); }
-    });
-  });
+  for(let i=0;i<BROKERS.length;i++){
+    const c = await connectBroker(i, net.code);
+    if(!net.host) { if(c) c.end(true); return; }
+    if(c){ net.client = c; net.broker = i; break; }
+  }
+  if(!net.client){ net.host = false; olStatus('Couldn\'t reach the game server. Check your internet connection and try again.'); return; }
+  net.lobby = [{name:myName(), pid:net.id}]; myIdx = 0;
+  $('olCodeShow').textContent = net.code; $('olStart').classList.add('hidden'); $('olLobby').classList.remove('hidden');
+  olStatus('Send the invite, then wait for players to join…'); renderLobby(); keepAwake();
 }
-function joinGame(){
-  if(!peerReady()) return;
-  const code = $('olCode').value.trim().toUpperCase(); if(code.length !== 4){ olStatus('Type the 4-letter code from the host.'); return; }
-  netClose(); olStatus('Connecting…');
-  const peer = new Peer(); net.peer = peer;
-  peer.on('open', ()=>{
-    const conn = peer.connect('frisbee-golf-' + code, {reliable:true}); net.conn = conn; net.code = code;
-    conn.on('open', ()=>{ conn.send({t:'hello', name:myName()}); $('olCodeShow').textContent = code; $('olStart').classList.add('hidden'); $('olLobby').classList.remove('hidden'); olStatus('Joined! Waiting for the host to start…'); });
-    conn.on('data', onNet);
-    conn.on('close', ()=>{ if(state!=='menu' && state!=='finished') flash('Lost connection to the host', 3); olStatus('Disconnected.'); });
-  });
-  peer.on('error', e=>olStatus(e.type==='peer-unavailable' ? 'No game with that code. Check it and try again.' : 'Connection problem: ' + e.type));
+async function joinGame(codeArg, brokerHint){
+  if(!libReady()) return;
+  const code = (codeArg || $('olCode').value).trim().toUpperCase(); if(code.length !== 4){ olStatus('Type the 4-letter code from the host.'); return; }
+  netClose(); net.id = newId(); net.code = code; net.topic = 'frisbee-golf-skoorbydna/v1/' + code;
+  const order = [0,1]; if(brokerHint==1) order.reverse();
+  const token = net.id;
+  for(const i of order){
+    olStatus(i===order[0] ? 'Connecting…' : 'Still trying… (second server)');
+    const c = await connectBroker(i, code);
+    if(net.id !== token){ if(c) c.end(true); return; }
+    if(!c) continue;
+    net.client = c; net.broker = i;
+    netSend({t:'hello', name:myName()});
+    const ok = await new Promise(res=>{ net.joinTimer = setTimeout(()=>res(false), 6000); net.onLobby = ()=>{ clearTimeout(net.joinTimer); res(true); }; });
+    net.onLobby = null;
+    if(ok){ keepAwake(); return; }
+    try{ c.end(true); }catch(e){} net.client = null;
+  }
+  olStatus('No game found with that code. Check the code, and make sure the host still has the game open on screen.');
 }
 function onNet(msg){
-  if(msg.t==='full'){ olStatus('That game is full or has already started.'); return; }
-  if(msg.t==='lobby'){ net.lobby = msg.lobby; myIdx = Math.max(0, net.lobby.findIndex(p=>p.pid===net.peer.id)); renderLobby(); return; }
-  if(msg.t==='start'){ launchOnline(msg.lobby); return; }
+  if(msg.t==='full'){ if(msg.to===net.id) olStatus('That game is full or has already started.'); return; }
+  if(msg.t==='hello' && net.host){
+    if(net.lobby.some(p=>p.pid===msg.from)){ netSend({t:'lobby', lobby:net.lobby}); return; }
+    if(net.started || net.lobby.length >= 4){ netSend({t:'full', to:msg.from}); return; }
+    net.lobby.push({name:String(msg.name||'Player').slice(0,14), pid:msg.from});
+    renderLobby(); netSend({t:'lobby', lobby:net.lobby}); olStatus(`${net.lobby.length} players ready`);
+    return;
+  }
+  if(msg.t==='lobby'){
+    if(!msg.lobby.some(p=>p.pid===net.id)) return;
+    net.lobby = msg.lobby; myIdx = net.lobby.findIndex(p=>p.pid===net.id);
+    if(net.onLobby) net.onLobby();
+    $('olCodeShow').textContent = net.code; $('olStart').classList.add('hidden'); $('olLobby').classList.remove('hidden');
+    if(!net.started) olStatus('Joined! Waiting for the host to start…');
+    renderLobby(); return;
+  }
+  if(msg.t==='bye'){
+    const i = net.lobby.findIndex(p=>p.pid===msg.from); if(i < 0) return;
+    if(!net.started){
+      if(net.host){ net.lobby.splice(i,1); renderLobby(); netSend({t:'lobby', lobby:net.lobby}); }
+      else if(i===0) olStatus('The host closed the game.');
+      return;
+    }
+    // in a game: give them a minute to come back (e.g. they popped out to WhatsApp)
+    net.away[msg.from] = Date.now();
+    flash(`${esc(net.lobby[i].name)} lost connection…`, 2);
+    if(net.host) setTimeout(()=>{ if(net.away[msg.from] && Date.now() - net.away[msg.from] >= 59000){ netSend({t:'left', idx:i}); onNet({t:'left', idx:i}); } }, 60000);
+    return;
+  }
+  if(msg.t==='back'){ if(net.away[msg.from]){ delete net.away[msg.from]; const i = net.lobby.findIndex(p=>p.pid===msg.from); if(i >= 0) flash(`${esc(net.lobby[i].name)} is back`, 1.5); } return; }
+  if(msg.t==='start'){ if(!net.started) launchOnline(msg.lobby); return; }
+  if(!net.started) return;
   if(msg.t==='hole'){ flushRemote(); $('holeScreen').classList.add('hidden'); if(msg.i >= C.HOLES.length) finishRound(); else startHole(msg.i); return; }
   if(msg.t==='left'){
-    const p = players[msg.idx]; if(!p) return; p.gone = true; flash(`${esc(p.name)} left the game`, 2);
+    const p = players[msg.idx]; if(!p || p.gone) return; p.gone = true; flash(`${esc(p.name)} left the game`, 2);
     if(!p.done){ p.done = true; p.scores[holeIdx] = C.HOLES[holeIdx].par + 3; }
     if(state==='wait' && cur===msg.idx) continueAfterRemote();
     return;
@@ -1279,15 +1340,34 @@ function onNet(msg){
   if(msg.t==='throw'){ netQueue.push(msg); processQueue(); }
 }
 function launchOnline(lobby){
-  net.started = true; net.lobby = lobby; myIdx = lobby.findIndex(p=>p.pid===net.peer.id);
-  $('onlineScreen').classList.add('hidden');
+  net.started = true; net.lobby = lobby; myIdx = lobby.findIndex(p=>p.pid===net.id);
+  $('onlineScreen').classList.add('hidden'); keepAwake();
   startRound('online', -1, lobby.map(p=>p.name));
 }
-$('onlineBtn').addEventListener('click', ()=>{ try{ $('olName').value = localStorage.getItem('discgolf-olname') || ''; }catch(e){} $('olStart').classList.remove('hidden'); $('olLobby').classList.add('hidden'); olStatus(window.Peer ? '' : 'Loading…'); $('onlineScreen').classList.remove('hidden'); setTimeout(()=>{ if(!window.Peer) peerReady(); else if($('olStatus').textContent==='Loading…') olStatus(''); }, 2500); });
+function openOnline(code, hint){
+  try{ $('olName').value = localStorage.getItem('discgolf-olname') || ''; }catch(e){}
+  $('olStart').classList.remove('hidden'); $('olLobby').classList.add('hidden');
+  $('olCode').value = code || ''; net.hint = hint;
+  olStatus(code ? 'You\'ve been invited! Type your name and tap Join.' : '');
+  $('onlineScreen').classList.remove('hidden');
+  setTimeout(()=>{ if(!window.mqtt) libReady(); }, 3000);
+}
+$('onlineBtn').addEventListener('click', ()=>openOnline(''));
 $('olHost').addEventListener('click', hostGame);
-$('olJoin').addEventListener('click', joinGame);
-$('olGo').addEventListener('click', ()=>{ if(!net.host || net.lobby.length < 2) return; net.started = true; netSend({t:'start', lobby:net.lobby}); launchOnline(net.lobby); });
+$('olJoin').addEventListener('click', ()=>joinGame('', net.hint));
+$('olGo').addEventListener('click', ()=>{ if(!net.host || net.lobby.length < 2) return; netSend({t:'start', lobby:net.lobby}); launchOnline(net.lobby); });
 $('olBack').addEventListener('click', ()=>{ netClose(); $('onlineScreen').classList.add('hidden'); });
+$('olWhatsApp').addEventListener('click', ()=>{
+  const txt = `Come and play disc golf with me! 🥏\nTap to join my game: ${inviteURL()}\n(or open Online play and type code ${net.code})`;
+  window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
+});
+$('olMore').addEventListener('click', async ()=>{
+  const url = inviteURL();
+  try{ if(navigator.share){ await navigator.share({title:'Disc Golf', text:`Join my disc golf game (code ${net.code}) 🥏`, url}); return; } }catch(e){ return; }
+  try{ await navigator.clipboard.writeText(url); olStatus('Invite link copied'); }catch(e){ olStatus(url); }
+});
+// opened from an invite link?
+(()=>{ try{ const q = new URLSearchParams(location.search), j = q.get('join'); if(j && /^[A-Z0-9]{4}$/i.test(j)){ history.replaceState(null, '', location.pathname); setTimeout(()=>openOnline(j.toUpperCase(), q.get('b')), 200); } }catch(e){} })();
 
 function netSendThrow(kind){
   const p = players[cur];
