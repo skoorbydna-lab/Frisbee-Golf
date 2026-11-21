@@ -17,14 +17,16 @@ A first-person 3D disc golf game for phones, built with three.js.
 - **Driving range:** unlimited throws at six target baskets (15–130 m) with distance lines, adjustable wind, and a breakdown of every flick (speed, length, launch angle, aim, carry, roll, drift) plus a tip.
 - **Practice round.**
 
-## The course (18 holes, par 66)
-Pick **Front 9**, **Back 9**, **All 18** or **Quick 3** (open, canyon, island or mixed) for any mode.
+## Courses (54 holes)
+Pick a course, then **Front 9**, **Back 9**, **All 18** or **Quick 3**, in any mode.
 
-| | Front 9 (par 32) | Back 9 (par 34) |
-|---|---|---|
-| Open / hilly | 1 Meadow Rise · 2 Mill Pond · 3 Rolling Downs | 10 Hilltop Drop · 11 Darkwood · 12 Windy Ridge |
-| Canyon | 4 Stone Gorge · 5 Canyon Run · 6 Red Rock Switchback | 13 The Narrows · 14 Snake Canyon · 15 Mesa Leap |
-| Island | 7 Island Green · 8 Stepping Stones · 9 Archipelago | 16 Lagoon Hop · 17 Coral Chain · 18 Lighthouse Finale |
+- **Classic** (par 66) – the original mix of open, canyon and island holes.
+- **Meadowlands** (par 66) – 18 open, hilly holes with ponds, streams and woods.
+- **Red Rock** (par 69) – 18 canyon holes: switchbacks, narrows and gorges to clear.
+- **Coral Isles** (par 69) – 18 island holes, from single hops to five-island par 5s.
+- **Shuffle** – a random, balanced 18 (six of each type) drawn from all 54 holes.
+
+Each themed course weaves the six hand-built holes of its type in with twelve generated ones. The generated holes come from fixed seeds, so they're identical every time; `tests/gen_search.js` picked those seeds by having a bot play candidates and keeping only sane, finishable layouts.
 
 ## Files
 - `index.html` – the whole game in one file (this is what GitHub Pages serves).

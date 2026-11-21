@@ -114,7 +114,95 @@ const byName = n => OLD_HOLES.concat(NEW_HOLES).find(h=>h.name===n);
 // 1–9 front nine, 10–18 back nine: each nine runs open → canyon → island
 const HOLES = ['Meadow Rise','Mill Pond','Rolling Downs','Stone Gorge','Canyon Run','Red Rock Switchback','Island Green','Stepping Stones','Archipelago',
                'Hilltop Drop','Darkwood','Windy Ridge','The Narrows','Snake Canyon','Mesa Leap','Lagoon Hop','Coral Chain','Lighthouse Finale'].map(byName);
-HOLES.forEach((H,i)=>{ H.num = i + 1; H.group = H.theme==='sea' ? 'island' : (H.theme==='canyon' || H.theme==='gorge') ? 'canyon' : 'open'; });
+
+// ---------- generated holes: each comes from a fixed seed, so it's identical every time ----------
+const GEN_NAMES = {
+  open:['Bluebell Bank','Foxglove Fields','Hawthorn Hollow','Kestrel Knoll','Larkspur Lea','Oakmere Common','Thistle Down','Heather Rise','Bramble Dell','Willow Brook','Skylark Combe','Rowan Ridge'],
+  canyon:['Copper Gulch','Ochre Draw','Sandstone Slot','Coyote Wash','Eagle Pass','Raven Chute','Scorpion Bend','Cinder Gap','Saddle Run','Rust Canyon','Dustdevil Draw','Mesa Verde'],
+  island:['Turtle Cay','Pelican Key','Driftwood Shoals','Sandbar Hop','Mango Isle','Conch Point','Tern Atoll','Kelp Strand','Gull Reef','Seashell Cay','Pearl Key','Lagoon Light']
+};
+function genHole(type, k, seed){
+  const r = rng(seed*977 + 13), R = (a,b)=>a + (b-a)*r(), I = (a,b)=>Math.floor(R(a, b+1));
+  const H = {name:GEN_NAMES[type][k], seed:seed*7 + 1000 + k, gen:true};
+  const walk = (segs, segLen, turn, zig)=>{ const P = [[0,0]]; let hd = 0, x = 0, z = 0, sgn = r()<0.5 ? -1 : 1;
+    for(let i=0;i<segs;i++){ if(i){ if(zig){ sgn = -sgn; hd = sgn*R(turn*0.6, turn); } else hd = Math.max(-0.8, Math.min(0.8, hd + R(-turn, turn))); }
+      const L = segLen*R(0.85, 1.15); x += Math.sin(hd)*L; z -= Math.cos(hd)*L; P.push([Math.round(x*10)/10, Math.round(z*10)/10]); } return P; };
+  const plen = P => P.slice(1).reduce((a,q,i)=>a + Math.hypot(q[0]-P[i][0], q[1]-P[i][1]), 0);
+  const at = (P, t)=>{ const L = plen(P); let d = L*t; for(let i=0;i<P.length-1;i++){ const s = Math.hypot(P[i+1][0]-P[i][0], P[i+1][1]-P[i][1]); if(d <= s){ const u = d/s; return [P[i][0] + (P[i+1][0]-P[i][0])*u, P[i][1] + (P[i+1][1]-P[i][1])*u, Math.atan2(P[i+1][0]-P[i][0], -(P[i+1][1]-P[i][1]))]; } d -= s; } const q = P[P.length-1]; return [q[0], q[1], 0]; };
+  const parFor = L => L < 112 ? 3 : L < 192 ? 4 : 5;
+  if(type==='open'){
+    const roll = r(), par0 = roll < 0.45 ? 3 : roll < 0.85 ? 4 : 5;
+    const segs = par0===3 ? I(1,2) : par0===4 ? I(2,3) : I(3,4), target = par0===3 ? R(72,108) : par0===4 ? R(132,172) : R(205,245);
+    const path = walk(segs, target/segs, 0.55, false); Object.assign(H, {path, par:parFor(plen(path))});
+    const forest = r() < 0.2;
+    Object.assign(H, forest ? {theme:'forest', fw:R(12,15), base:0.5, hills:R(2,3.5), windFactor:0.55, trees:{count:I(420,540), clear:7.5, gap:2.6, kinds:['pine','pine','oak','birch']}}
+                            : {theme:r()<0.5 ? 'downs' : 'meadow', fw:R(19,26), base:R(1.5,2.5), hills:R(2,5), trees:{count:I(70,150), clear:R(12,16), kinds:['oak','oak','pine','birch']}});
+    H.features = []; const B = path[path.length-1];
+    for(let i=0, n=I(3,7); i<n; i++){ const t = R(0.1,0.95), q = at(path, t), off = R(-45,45); const x = q[0] + Math.cos(q[2])*off, z = q[1] + Math.sin(q[2])*off;
+      if(Math.hypot(x,z) < 20 || Math.hypot(x-B[0], z-B[1]) < 20) continue; H.features.push({k:'hill', x:Math.round(x), z:Math.round(z), r:Math.round(R(15,34)), h:Math.round(R(-4,10)*10)/10}); }
+    if(!forest && r() < 0.15){ H.features.push({k:'hill', x:0, z:1, r:38, h:Math.round(R(10,15))}); }
+    if(!forest && r() < 0.4){
+      H.water = 0; H.base = Math.max(H.base, 2.3);
+      if(H.par >= 4 && r() < 0.5){ const q = at(path, R(0.4,0.6)), nx = Math.cos(q[2]), nz = Math.sin(q[2]);
+        H.features.push({k:'stream', path:[[q[0]-nx*140, q[1]-nz*140],[q[0]+nx*140, q[1]+nz*140]], w:R(6,9)}); }
+      else { for(let tries=0; tries<10; tries++){ const q = at(path, R(0.3,0.75)), side = r()<0.5 ? -1 : 1, rad = R(8,14), off = side*(H.fw/2 + rad*0.6 + R(0,6));
+        const x = q[0] + Math.cos(q[2])*off, z = q[1] + Math.sin(q[2])*off; if(Math.hypot(x,z) < rad+14 || Math.hypot(x-B[0], z-B[1]) < rad+16) continue;
+        H.features.push({k:'pond', x:Math.round(x), z:Math.round(z), r:Math.round(rad)}); break; } }
+    }
+    const mid = at(path, R(0.4,0.6)); H.extraTrees = r() < 0.6 ? [[Math.round(mid[0] + R(-3,3)), Math.round(mid[1])]] : [];
+    H.rocks = I(4,10); H.wind = [Math.round(R(-4,4)*10)/10, Math.round(R(-4,4)*10)/10];
+    H.diff = 0.1 + (H.water != null ? 0.15 : 0) + (forest ? 0.3 : 0) + (H.par===5 ? 0.1 : 0);
+  }
+  else if(type==='canyon'){
+    const segs = I(2,6), path = walk(segs, R(30,44), R(0.6,1.1), true), L = plen(path);
+    const last = path[path.length-1], prev = path[path.length-2], dx = last[0]-prev[0], dz = last[1]-prev[1], dl = Math.hypot(dx,dz);
+    const w = R(18,30), cpath = [[0,40]].concat(path, [[last[0] + dx/dl*50, last[1] + dz/dl*50]]);
+    Object.assign(H, {theme:'canyon', path, par:parFor(L), fw:Math.round(w*0.62), base:0.3, hills:0.5, windFactor:R(0.6,0.8),
+      features:[{k:'canyon', path:cpath, w:Math.round(w), h:Math.round(R(18,28))}], trees:{count:I(40,70), clear:30, kinds:['pine']}, boulders:I(10,22),
+      wind:[Math.round(R(-4,4)*10)/10, Math.round(R(-4,4)*10)/10]});
+    if(L > 70 && r() < 0.35){ const q = at(path, R(0.4,0.6)), nx = Math.cos(q[2]), nz = Math.sin(q[2]);
+      H.features.push({k:'chasm', path:[[q[0]-nx*80, q[1]-nz*80],[q[0]+nx*80, q[1]+nz*80]], w:Math.round(R(11,15)), depth:22}); }
+    H.diff = 0.35 + (segs-2)*0.07 + (H.features.length > 1 ? 0.1 : 0) + (w < 22 ? 0.1 : 0);
+  }
+  else {
+    const hops = I(0,3), isl = [{x:0, z:3, r:17, h:1.8}], path = [[0,0]];
+    let x = 0, z = 0, hd = R(-0.3,0.3);
+    for(let i=0;i<=hops;i++){
+      const last = i===hops, d = hops===0 ? R(70,100) : R(44,62);
+      hd = Math.max(-0.7, Math.min(0.7, hd + R(-0.55,0.55))); x += Math.sin(hd)*d; z -= Math.cos(hd)*d;
+      const rx = Math.round(x), rz = Math.round(z); path.push([rx, rz]);
+      isl.push(last ? {x:rx, z:rz, r:Math.round(R(12.5,15)), h:1.7} : {x:rx, z:rz, r:Math.round(R(10.5,13)), h:Math.round(R(1.2,1.6)*10)/10});
+    }
+    if(hops >= 1 && r() < 0.6){ const a = path[Math.max(0, path.length-3)], b = path[path.length-1], sx = (a[0]+b[0])/2 + R(-6,6), sz = (a[1]+b[1])/2;
+      if(isl.every(q=>Math.hypot(q.x-sx, q.z-sz) > q.r + 12)) isl.push({x:Math.round(sx), z:Math.round(sz), r:5, h:1.0, small:true}); }
+    for(let i=0, n=I(1,3); i<n; i++){ const q = at(path, R(0.2,0.8)), side = r()<0.5 ? -1 : 1, off = side*R(28,46), dx = q[0] + Math.cos(q[2])*off, dz = q[1] + Math.sin(q[2])*off, rr = Math.round(R(6,9));
+      if(isl.every(o=>Math.hypot(o.x-dx, o.z-dz) > o.r + rr + 8)) isl.push({x:Math.round(dx), z:Math.round(dz), r:rr, h:1.0}); }
+    Object.assign(H, {theme:'sea', sea:true, water:0, fw:0, path, par:parFor(plen(path)), islands:isl, palms:true, wind:[Math.round(R(-5,5)*10)/10, Math.round(R(-5,5)*10)/10]});
+    if(hops >= 1 && r() < 0.3){ const m = isl[1]; H.lighthouse = {x:Math.round(m.x + m.r*0.45), z:Math.round(m.z - m.r*0.2)}; }
+    H.diff = 0.4 + hops*0.08 + (H.par===5 ? 0.1 : 0);
+  }
+  H.basket = H.path[H.path.length-1]; H.windFactor = H.windFactor || 1;
+  return H;
+}
+// seeds that the test bot proved playable (tests/gen_search.js); slot order matters
+const GEN_SEEDS = {open:[1,3,4,5,6,8,10,11,13,14,15,19], canyon:[1,2,6,7,8,11,12,13,14,15,19,25], island:[1,2,6,7,10,12,13,14,16,17,18,20]};
+for(const t of ['open','canyon','island']) GEN_SEEDS[t].forEach((sd,k)=>HOLES.push(genHole(t, k, sd)));
+HOLES.forEach((H,i)=>{ H.id = i; H.group = H.theme==='sea' ? 'island' : (H.theme==='canyon' || H.theme==='gorge') ? 'canyon' : 'open'; });
+// courses (18 holes each). Themed courses weave the six hand-built holes in with twelve generated ones.
+const weave = (hand, gen0)=>{
+  // deal generated holes alternately to the front and back nine (longest first) so both nines balance
+  const srt = gen0.slice().sort((a,b)=>HOLES[b].par - HOLES[a].par || a - b), F = [], B = [];
+  srt.forEach((g,i)=>(i % 2 ? B : F).push(g));
+  const mix = (h, g)=>[g[2],h[0],g[0],g[4],h[1],g[1],g[3],h[2],g[5]];   // par-5 not first, hand-built holes spaced out
+  return mix(hand.slice(0,3), F).concat(mix(hand.slice(3), B));
+};
+const genIdx = (t, off)=>Array.from({length:12}, (_,k)=>18 + off + k);
+const COURSES = {
+  classic:{name:'Classic', blurb:'The original mix: open, canyon and island', holes:Array.from({length:18}, (_,i)=>i)},
+  open:{name:'Meadowlands', blurb:'18 open, hilly holes with ponds and woods', holes:weave([0,1,2,9,10,11], genIdx('open', 0))},
+  canyon:{name:'Red Rock', blurb:'18 canyon holes: bends, narrows and gorges', holes:weave([3,4,5,12,13,14], genIdx('canyon', 12))},
+  island:{name:'Coral Isles', blurb:'18 island holes: hop across the sea', holes:weave([6,7,8,15,16,17], genIdx('island', 24))}
+};
 HOLES.forEach(H=>{ H.basket = H.path[H.path.length-1]; if(H.windFactor==null) H.windFactor = 1; });
 // practice range: wide flat field, target baskets at set distances, no out of bounds
 const RANGE = {name:'Driving Range', par:0, theme:'range', diff:0, seed:5, range:true,
@@ -531,6 +619,6 @@ function holeWinds(tier, seed, holes){
   });
 }
 
-return {G, rng, fbm, smooth, distToPath, DISCS, HOLES, RANGE, makeTerrain, makeWorld, surface, newFlight, stepFlight, stepRoll, TOURS, makeField, cpuScore, holeWinds, OB_TYPES};
+return {G, rng, fbm, smooth, distToPath, DISCS, HOLES, COURSES, RANGE, genHole, GEN_NAMES, makeTerrain, makeWorld, surface, newFlight, stepFlight, stepRoll, TOURS, makeField, cpuScore, holeWinds, OB_TYPES};
 })();
 if(typeof module !== 'undefined') module.exports = Core;

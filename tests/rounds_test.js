@@ -48,21 +48,18 @@ function playOut(D, label){
     if(D.dg.state==='holed' && !D.els.holeScreen.classList.contains('hidden') && !D.els.nextBtn.disabled) D.els.nextBtn.fire('click');
   }
   const p = D.dg.players[0];
-  console.log(label, '→', D.dg.state, '| holes', D.dg.RH.map(h=>h.num).join(','), '| scores', p.scores.length, '| card has Out/In:', /Out/.test(D.els.card.innerHTML) && /In/.test(D.els.card.innerHTML));
+  console.log(label, '→', D.dg.state, '| holes', D.dg.RH.length, '| scores', p.scores.length, '| card has Out/In:', /Out/.test(D.els.card.innerHTML) && /In/.test(D.els.card.innerHTML));
 }
 (async()=>{
-  // All 18 practice
-  let D = device('Andy', {'discgolf-settings':JSON.stringify({round:'all'})});
-  D.frame(2); D.els.practiceBtn.fire('click'); D.flush(); D.frame(3); playOut(D, 'All 18 practice');
-  // Back 9 tournament
-  D = device('Andy', {'discgolf-settings':JSON.stringify({round:'back'})});
-  D.frame(2); D.els.tourList.children[0].h.click[0](); D.flush(); D.frame(3); playOut(D, 'Back 9 tournament');
-  console.log('   CPU score count:', D.ctx.eval ? '' : '', D.els.lb.innerHTML.match(/<tr/g).length, 'rows');
-  // Quick 3 of each type
-  for(const q of ['island','canyon','open','mix']){
-    D = device('Andy', {'discgolf-settings':JSON.stringify({round:'quick', quick:q})});
-    D.frame(2); D.els.practiceBtn.fire('click'); D.flush(); D.frame(3);
-    console.log(`Quick 3 ${q}:`, D.dg.RH.map(h=>`${h.num} ${h.name} [${h.group}]`).join(' | '));
-    playOut(D, `  Quick 3 ${q} played`);
+  const runs = [['classic','front','tour'],['classic','all','practice'],['open','back','practice'],['canyon','front','tour'],['island','all','practice'],['shuffle','front','practice'],
+                ['open','quick','practice'],['canyon','quick','practice'],['island','quick','practice'],['classic','quick','practice'],['shuffle','quick','practice']];
+  for(const [course, round, how] of runs){
+    const D = device('Andy', {'discgolf-settings':JSON.stringify({course, round})});
+    D.frame(2);
+    if(how==='tour') D.els.tourList.children[0].h.click[0](); else D.els.practiceBtn.fire('click');
+    D.flush(); D.frame(3);
+    const holes = D.dg.RH.map((h,i)=>h.name + '[' + h.group[0] + ']');
+    playOut(D, `${course}/${round}/${how}`);
+    console.log('    ', holes.join(', '), '| title:', D.els.holeName.textContent);
   }
 })();

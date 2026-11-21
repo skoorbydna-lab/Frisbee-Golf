@@ -119,13 +119,14 @@
 <div class="overlay" id="menuScreen">
   <div class="card">
     <h1>Disc Golf Tour</h1>
-    <p style="opacity:.7;margin-top:2px">18 holes · open hills, canyons &amp; islands</p>
-    <div class="row" id="roundRow" style="margin-top:8px">
+    <p style="opacity:.7;margin-top:2px">54 holes · 4 courses · open, canyon &amp; island</p>
+    <div class="row" id="courseRow" style="margin-top:8px">
+      <button class="chip" data-course="classic">Classic<small>mix</small></button><button class="chip" data-course="open">Open<small>18</small></button><button class="chip" data-course="canyon">Canyon<small>18</small></button><button class="chip" data-course="island">Island<small>18</small></button><button class="chip" data-course="shuffle">Shuffle<small>random</small></button>
+    </div>
+    <div class="row" id="roundRow" style="margin-top:6px">
       <button class="chip" data-round="front">Front 9</button><button class="chip" data-round="back">Back 9</button><button class="chip" data-round="all">All 18</button><button class="chip" data-round="quick">Quick 3</button>
     </div>
-    <div class="row hidden" id="quickRow" style="margin-top:6px">
-      <button class="chip" data-quick="mix">Mixed</button><button class="chip" data-quick="open">Open</button><button class="chip" data-quick="canyon">Canyon</button><button class="chip" data-quick="island">Island</button>
-    </div>
+    <p id="courseBlurb" style="font-size:12.5px;opacity:.8;margin:4px 0 0"></p>
     <div id="tourList"></div>
     <button class="tour" id="onlineBtn">🌐 Online play<small>2–4 players on their own phones. Host a game and share the code.</small></button>
     <button class="tour" id="localBtn">👥 Pass &amp; play<small>2–4 players on one phone. Furthest from the basket throws next.</small></button>
@@ -323,7 +324,95 @@ const byName = n => OLD_HOLES.concat(NEW_HOLES).find(h=>h.name===n);
 // 1–9 front nine, 10–18 back nine: each nine runs open → canyon → island
 const HOLES = ['Meadow Rise','Mill Pond','Rolling Downs','Stone Gorge','Canyon Run','Red Rock Switchback','Island Green','Stepping Stones','Archipelago',
                'Hilltop Drop','Darkwood','Windy Ridge','The Narrows','Snake Canyon','Mesa Leap','Lagoon Hop','Coral Chain','Lighthouse Finale'].map(byName);
-HOLES.forEach((H,i)=>{ H.num = i + 1; H.group = H.theme==='sea' ? 'island' : (H.theme==='canyon' || H.theme==='gorge') ? 'canyon' : 'open'; });
+
+// ---------- generated holes: each comes from a fixed seed, so it's identical every time ----------
+const GEN_NAMES = {
+  open:['Bluebell Bank','Foxglove Fields','Hawthorn Hollow','Kestrel Knoll','Larkspur Lea','Oakmere Common','Thistle Down','Heather Rise','Bramble Dell','Willow Brook','Skylark Combe','Rowan Ridge'],
+  canyon:['Copper Gulch','Ochre Draw','Sandstone Slot','Coyote Wash','Eagle Pass','Raven Chute','Scorpion Bend','Cinder Gap','Saddle Run','Rust Canyon','Dustdevil Draw','Mesa Verde'],
+  island:['Turtle Cay','Pelican Key','Driftwood Shoals','Sandbar Hop','Mango Isle','Conch Point','Tern Atoll','Kelp Strand','Gull Reef','Seashell Cay','Pearl Key','Lagoon Light']
+};
+function genHole(type, k, seed){
+  const r = rng(seed*977 + 13), R = (a,b)=>a + (b-a)*r(), I = (a,b)=>Math.floor(R(a, b+1));
+  const H = {name:GEN_NAMES[type][k], seed:seed*7 + 1000 + k, gen:true};
+  const walk = (segs, segLen, turn, zig)=>{ const P = [[0,0]]; let hd = 0, x = 0, z = 0, sgn = r()<0.5 ? -1 : 1;
+    for(let i=0;i<segs;i++){ if(i){ if(zig){ sgn = -sgn; hd = sgn*R(turn*0.6, turn); } else hd = Math.max(-0.8, Math.min(0.8, hd + R(-turn, turn))); }
+      const L = segLen*R(0.85, 1.15); x += Math.sin(hd)*L; z -= Math.cos(hd)*L; P.push([Math.round(x*10)/10, Math.round(z*10)/10]); } return P; };
+  const plen = P => P.slice(1).reduce((a,q,i)=>a + Math.hypot(q[0]-P[i][0], q[1]-P[i][1]), 0);
+  const at = (P, t)=>{ const L = plen(P); let d = L*t; for(let i=0;i<P.length-1;i++){ const s = Math.hypot(P[i+1][0]-P[i][0], P[i+1][1]-P[i][1]); if(d <= s){ const u = d/s; return [P[i][0] + (P[i+1][0]-P[i][0])*u, P[i][1] + (P[i+1][1]-P[i][1])*u, Math.atan2(P[i+1][0]-P[i][0], -(P[i+1][1]-P[i][1]))]; } d -= s; } const q = P[P.length-1]; return [q[0], q[1], 0]; };
+  const parFor = L => L < 112 ? 3 : L < 192 ? 4 : 5;
+  if(type==='open'){
+    const roll = r(), par0 = roll < 0.45 ? 3 : roll < 0.85 ? 4 : 5;
+    const segs = par0===3 ? I(1,2) : par0===4 ? I(2,3) : I(3,4), target = par0===3 ? R(72,108) : par0===4 ? R(132,172) : R(205,245);
+    const path = walk(segs, target/segs, 0.55, false); Object.assign(H, {path, par:parFor(plen(path))});
+    const forest = r() < 0.2;
+    Object.assign(H, forest ? {theme:'forest', fw:R(12,15), base:0.5, hills:R(2,3.5), windFactor:0.55, trees:{count:I(420,540), clear:7.5, gap:2.6, kinds:['pine','pine','oak','birch']}}
+                            : {theme:r()<0.5 ? 'downs' : 'meadow', fw:R(19,26), base:R(1.5,2.5), hills:R(2,5), trees:{count:I(70,150), clear:R(12,16), kinds:['oak','oak','pine','birch']}});
+    H.features = []; const B = path[path.length-1];
+    for(let i=0, n=I(3,7); i<n; i++){ const t = R(0.1,0.95), q = at(path, t), off = R(-45,45); const x = q[0] + Math.cos(q[2])*off, z = q[1] + Math.sin(q[2])*off;
+      if(Math.hypot(x,z) < 20 || Math.hypot(x-B[0], z-B[1]) < 20) continue; H.features.push({k:'hill', x:Math.round(x), z:Math.round(z), r:Math.round(R(15,34)), h:Math.round(R(-4,10)*10)/10}); }
+    if(!forest && r() < 0.15){ H.features.push({k:'hill', x:0, z:1, r:38, h:Math.round(R(10,15))}); }
+    if(!forest && r() < 0.4){
+      H.water = 0; H.base = Math.max(H.base, 2.3);
+      if(H.par >= 4 && r() < 0.5){ const q = at(path, R(0.4,0.6)), nx = Math.cos(q[2]), nz = Math.sin(q[2]);
+        H.features.push({k:'stream', path:[[q[0]-nx*140, q[1]-nz*140],[q[0]+nx*140, q[1]+nz*140]], w:R(6,9)}); }
+      else { for(let tries=0; tries<10; tries++){ const q = at(path, R(0.3,0.75)), side = r()<0.5 ? -1 : 1, rad = R(8,14), off = side*(H.fw/2 + rad*0.6 + R(0,6));
+        const x = q[0] + Math.cos(q[2])*off, z = q[1] + Math.sin(q[2])*off; if(Math.hypot(x,z) < rad+14 || Math.hypot(x-B[0], z-B[1]) < rad+16) continue;
+        H.features.push({k:'pond', x:Math.round(x), z:Math.round(z), r:Math.round(rad)}); break; } }
+    }
+    const mid = at(path, R(0.4,0.6)); H.extraTrees = r() < 0.6 ? [[Math.round(mid[0] + R(-3,3)), Math.round(mid[1])]] : [];
+    H.rocks = I(4,10); H.wind = [Math.round(R(-4,4)*10)/10, Math.round(R(-4,4)*10)/10];
+    H.diff = 0.1 + (H.water != null ? 0.15 : 0) + (forest ? 0.3 : 0) + (H.par===5 ? 0.1 : 0);
+  }
+  else if(type==='canyon'){
+    const segs = I(2,6), path = walk(segs, R(30,44), R(0.6,1.1), true), L = plen(path);
+    const last = path[path.length-1], prev = path[path.length-2], dx = last[0]-prev[0], dz = last[1]-prev[1], dl = Math.hypot(dx,dz);
+    const w = R(18,30), cpath = [[0,40]].concat(path, [[last[0] + dx/dl*50, last[1] + dz/dl*50]]);
+    Object.assign(H, {theme:'canyon', path, par:parFor(L), fw:Math.round(w*0.62), base:0.3, hills:0.5, windFactor:R(0.6,0.8),
+      features:[{k:'canyon', path:cpath, w:Math.round(w), h:Math.round(R(18,28))}], trees:{count:I(40,70), clear:30, kinds:['pine']}, boulders:I(10,22),
+      wind:[Math.round(R(-4,4)*10)/10, Math.round(R(-4,4)*10)/10]});
+    if(L > 70 && r() < 0.35){ const q = at(path, R(0.4,0.6)), nx = Math.cos(q[2]), nz = Math.sin(q[2]);
+      H.features.push({k:'chasm', path:[[q[0]-nx*80, q[1]-nz*80],[q[0]+nx*80, q[1]+nz*80]], w:Math.round(R(11,15)), depth:22}); }
+    H.diff = 0.35 + (segs-2)*0.07 + (H.features.length > 1 ? 0.1 : 0) + (w < 22 ? 0.1 : 0);
+  }
+  else {
+    const hops = I(0,3), isl = [{x:0, z:3, r:17, h:1.8}], path = [[0,0]];
+    let x = 0, z = 0, hd = R(-0.3,0.3);
+    for(let i=0;i<=hops;i++){
+      const last = i===hops, d = hops===0 ? R(70,100) : R(44,62);
+      hd = Math.max(-0.7, Math.min(0.7, hd + R(-0.55,0.55))); x += Math.sin(hd)*d; z -= Math.cos(hd)*d;
+      const rx = Math.round(x), rz = Math.round(z); path.push([rx, rz]);
+      isl.push(last ? {x:rx, z:rz, r:Math.round(R(12.5,15)), h:1.7} : {x:rx, z:rz, r:Math.round(R(10.5,13)), h:Math.round(R(1.2,1.6)*10)/10});
+    }
+    if(hops >= 1 && r() < 0.6){ const a = path[Math.max(0, path.length-3)], b = path[path.length-1], sx = (a[0]+b[0])/2 + R(-6,6), sz = (a[1]+b[1])/2;
+      if(isl.every(q=>Math.hypot(q.x-sx, q.z-sz) > q.r + 12)) isl.push({x:Math.round(sx), z:Math.round(sz), r:5, h:1.0, small:true}); }
+    for(let i=0, n=I(1,3); i<n; i++){ const q = at(path, R(0.2,0.8)), side = r()<0.5 ? -1 : 1, off = side*R(28,46), dx = q[0] + Math.cos(q[2])*off, dz = q[1] + Math.sin(q[2])*off, rr = Math.round(R(6,9));
+      if(isl.every(o=>Math.hypot(o.x-dx, o.z-dz) > o.r + rr + 8)) isl.push({x:Math.round(dx), z:Math.round(dz), r:rr, h:1.0}); }
+    Object.assign(H, {theme:'sea', sea:true, water:0, fw:0, path, par:parFor(plen(path)), islands:isl, palms:true, wind:[Math.round(R(-5,5)*10)/10, Math.round(R(-5,5)*10)/10]});
+    if(hops >= 1 && r() < 0.3){ const m = isl[1]; H.lighthouse = {x:Math.round(m.x + m.r*0.45), z:Math.round(m.z - m.r*0.2)}; }
+    H.diff = 0.4 + hops*0.08 + (H.par===5 ? 0.1 : 0);
+  }
+  H.basket = H.path[H.path.length-1]; H.windFactor = H.windFactor || 1;
+  return H;
+}
+// seeds that the test bot proved playable (tests/gen_search.js); slot order matters
+const GEN_SEEDS = {open:[1,3,4,5,6,8,10,11,13,14,15,19], canyon:[1,2,6,7,8,11,12,13,14,15,19,25], island:[1,2,6,7,10,12,13,14,16,17,18,20]};
+for(const t of ['open','canyon','island']) GEN_SEEDS[t].forEach((sd,k)=>HOLES.push(genHole(t, k, sd)));
+HOLES.forEach((H,i)=>{ H.id = i; H.group = H.theme==='sea' ? 'island' : (H.theme==='canyon' || H.theme==='gorge') ? 'canyon' : 'open'; });
+// courses (18 holes each). Themed courses weave the six hand-built holes in with twelve generated ones.
+const weave = (hand, gen0)=>{
+  // deal generated holes alternately to the front and back nine (longest first) so both nines balance
+  const srt = gen0.slice().sort((a,b)=>HOLES[b].par - HOLES[a].par || a - b), F = [], B = [];
+  srt.forEach((g,i)=>(i % 2 ? B : F).push(g));
+  const mix = (h, g)=>[g[2],h[0],g[0],g[4],h[1],g[1],g[3],h[2],g[5]];   // par-5 not first, hand-built holes spaced out
+  return mix(hand.slice(0,3), F).concat(mix(hand.slice(3), B));
+};
+const genIdx = (t, off)=>Array.from({length:12}, (_,k)=>18 + off + k);
+const COURSES = {
+  classic:{name:'Classic', blurb:'The original mix: open, canyon and island', holes:Array.from({length:18}, (_,i)=>i)},
+  open:{name:'Meadowlands', blurb:'18 open, hilly holes with ponds and woods', holes:weave([0,1,2,9,10,11], genIdx('open', 0))},
+  canyon:{name:'Red Rock', blurb:'18 canyon holes: bends, narrows and gorges', holes:weave([3,4,5,12,13,14], genIdx('canyon', 12))},
+  island:{name:'Coral Isles', blurb:'18 island holes: hop across the sea', holes:weave([6,7,8,15,16,17], genIdx('island', 24))}
+};
 HOLES.forEach(H=>{ H.basket = H.path[H.path.length-1]; if(H.windFactor==null) H.windFactor = 1; });
 // practice range: wide flat field, target baskets at set distances, no out of bounds
 const RANGE = {name:'Driving Range', par:0, theme:'range', diff:0, seed:5, range:true,
@@ -740,7 +829,7 @@ function holeWinds(tier, seed, holes){
   });
 }
 
-return {G, rng, fbm, smooth, distToPath, DISCS, HOLES, RANGE, makeTerrain, makeWorld, surface, newFlight, stepFlight, stepRoll, TOURS, makeField, cpuScore, holeWinds, OB_TYPES};
+return {G, rng, fbm, smooth, distToPath, DISCS, HOLES, COURSES, RANGE, genHole, GEN_NAMES, makeTerrain, makeWorld, surface, newFlight, stepFlight, stepRoll, TOURS, makeField, cpuScore, holeWinds, OB_TYPES};
 })();
 if(typeof module !== 'undefined') module.exports = Core;
 </script>
@@ -1305,7 +1394,7 @@ function buildHole(i){
   }
   // tee, basket, windsock
   const ty = W.T(0,0).h;
-  const tee = isRange ? makeTee('🎯', 'Driving range') : makeTee(H.num, H.par, Math.round(Math.hypot(H.basket[0], H.basket[1]))); tee.position.set(0, ty, 0);
+  const tee = isRange ? makeTee('🎯', 'Driving range') : makeTee(numAt(i), H.par, Math.round(Math.hypot(H.basket[0], H.basket[1]))); tee.position.set(0, ty, 0);
   const fd = H.path[1]; tee.rotation.y = Math.atan2(-fd[0], -fd[1]); group.add(tee);
   const sock = makeWindsock(); sock.position.set(2.8, W.T(2.8, 1.5).h, 1.5); group.add(sock);
   if(H.room){ sock.position.set(R_SOCK.x, 0, R_SOCK.z); }
@@ -1422,30 +1511,49 @@ document.querySelectorAll('.setG').forEach(b=>b.addEventListener('click', ()=>{
 let confirmReload = false;
 document.querySelectorAll('.setS').forEach(b=>b.addEventListener('click', ()=>{ settings.stats = !settings.stats; try{ localStorage.setItem(SET_KEY, JSON.stringify(settings)); }catch(e){} renderSettings(); }));
 function renderRoundPicker(){
-  const k = settings.round || 'front', q = settings.quick || 'mix';
+  const k = settings.round || 'front', c = settings.course || 'classic';
   document.querySelectorAll('[data-round]').forEach(b=>b.classList.toggle('on', b.dataset.round===k));
-  document.querySelectorAll('[data-quick]').forEach(b=>b.classList.toggle('on', b.dataset.quick===q));
-  $('quickRow').classList.toggle('hidden', k!=='quick');
+  document.querySelectorAll('[data-course]').forEach(b=>b.classList.toggle('on', b.dataset.course===c));
+  const info = c==='shuffle' ? {name:'Shuffle', blurb:'A random 18 from all 54 holes, 6 of each type'} : C.COURSES[c];
+  const H = c==='shuffle' ? null : info.holes.map(i=>C.HOLES[i]);
+  const par = H ? (k==='front' ? H.slice(0,9) : k==='back' ? H.slice(9) : k==='all' ? H : []).reduce((a,h)=>a+h.par,0) : 0;
+  $('courseBlurb').textContent = `${info.name}: ${info.blurb}` + (par ? ` · par ${par}` : '') + (k==='quick' ? (c==='classic' || c==='shuffle' ? ' · Quick 3: one open, one canyon, one island' : ' · Quick 3: three random holes') : '');
 }
 document.querySelectorAll('[data-round]').forEach(b=>b.addEventListener('click', ()=>{ settings.round = b.dataset.round; try{ localStorage.setItem(SET_KEY, JSON.stringify(settings)); }catch(e){} renderRoundPicker(); }));
-document.querySelectorAll('[data-quick]').forEach(b=>b.addEventListener('click', ()=>{ settings.quick = b.dataset.quick; try{ localStorage.setItem(SET_KEY, JSON.stringify(settings)); }catch(e){} renderRoundPicker(); }));
+document.querySelectorAll('[data-course]').forEach(b=>b.addEventListener('click', ()=>{ settings.course = b.dataset.course; try{ localStorage.setItem(SET_KEY, JSON.stringify(settings)); }catch(e){} renderRoundPicker(); }));
 renderRoundPicker();
 renderSettings();
 // ---------- which holes this round uses ----------
 let RH = C.HOLES.slice(0, 9), roundIdx = [0,1,2,3,4,5,6,7,8];
-function makeRound(key, quick, seed){
+function makeRound(course, key, seed){
   const r = C.rng(seed || (Date.now() & 0xffffff));
-  if(key==='back') return [9,10,11,12,13,14,15,16,17];
-  if(key==='all') return C.HOLES.map((h,i)=>i);
-  if(key==='quick'){
-    const pickFrom = g=>{ const l = C.HOLES.map((h,i)=>i).filter(i=>C.HOLES[i].group===g); for(let i=l.length-1;i>0;i--){ const j = Math.floor(r()*(i+1)); [l[i],l[j]] = [l[j],l[i]]; } return l; };
-    if(quick==='mix') return ['open','canyon','island'].map(g=>pickFrom(g)[0]);
-    return pickFrom(quick).slice(0,3).sort((a,b)=>a-b);
+  const shuffle = l=>{ l = l.slice(); for(let i=l.length-1;i>0;i--){ const j = Math.floor(r()*(i+1)); [l[i],l[j]] = [l[j],l[i]]; } return l; };
+  const ofGroup = g=>C.HOLES.filter(h=>h.group===g).map(h=>h.id);
+  let list = course==='shuffle' ? shuffle([...shuffle(ofGroup('open')).slice(0,6), ...shuffle(ofGroup('canyon')).slice(0,6), ...shuffle(ofGroup('island')).slice(0,6)])
+                                : (C.COURSES[course] || C.COURSES.classic).holes;
+  const pos = list.map((_,i)=>i);
+  let sel;
+  if(key==='back') sel = pos.slice(9);
+  else if(key==='all') sel = pos;
+  else if(key==='quick'){
+    if(course==='classic' || course==='shuffle'){
+      const idx = ['open','canyon','island'].map(g=>shuffle(ofGroup(g))[0]);
+      return {idx, nums:[1,2,3], course, key};
+    }
+    sel = shuffle(pos).slice(0,3).sort((a,b)=>a-b);
   }
-  return [0,1,2,3,4,5,6,7,8];
+  else sel = pos.slice(0,9);
+  return {idx:sel.map(i=>list[i]), nums:sel.map(i=>i+1), course, key};
 }
-function setRound(idxs){ roundIdx = idxs.slice(); RH = roundIdx.map(i=>C.HOLES[i]); }
-function roundName(){ const k = settings.round || 'front'; return k==='front' ? 'Front 9' : k==='back' ? 'Back 9' : k==='all' ? 'All 18' : `Quick 3 · ${({mix:'mixed',open:'open',canyon:'canyon',island:'island'})[settings.quick || 'mix']}`; }
+let roundNums = [1,2,3,4,5,6,7,8,9], roundInfo = {course:'classic', key:'front'};
+function setRound(R){
+  if(Array.isArray(R)) R = {idx:R, nums:R.map((_,i)=>i+1)};
+  roundIdx = R.idx.slice(); roundNums = (R.nums || R.idx.map((_,i)=>i+1)).slice(); roundInfo = {course:R.course || 'classic', key:R.key || 'front'};
+  RH = roundIdx.map(i=>C.HOLES[i]);
+}
+const numAt = i => roundNums[i] ?? (i+1);
+function courseLabel(c){ return c==='shuffle' ? 'Shuffle' : (C.COURSES[c] || C.COURSES.classic).name; }
+function roundName(){ const k = settings.round || 'front'; return courseLabel(settings.course || 'classic') + ' · ' + (k==='front' ? 'Front 9' : k==='back' ? 'Back 9' : k==='all' ? 'All 18' : 'Quick 3'); }
 let mode = 'practice', tier = -1, field = [], winds = [], you = null, players = [], cur = 0;
 const PCOL = ['#ff8a1f','#2a8fd6','#3fbf5f','#c75bd6'];
 function mkPlayer(name, i){ return {name, color:PCOL[i%4], scores:[], lie:new THREE.Vector3(), lastLie:new THREE.Vector3(), strokes:0, done:false, lastThrowDist:0}; }
@@ -1472,7 +1580,7 @@ function renderMenu(){
   });
 }
 function startRound(m, k, names, idxs){
-  setRound(idxs || makeRound(settings.round || 'front', settings.quick || 'mix'));
+  setRound(idxs || makeRound(settings.course || 'classic', settings.round || 'front'));
   $('rangeRow').classList.add('hidden'); $('statsCard').classList.add('hidden');
   if(!actx) initAudio();
   mode = m; tier = m==='tour' ? k : -1;
@@ -1520,7 +1628,7 @@ function updateHUD(){
     return;
   }
   const H = RH[holeIdx];
-  $('holeName').textContent = `Hole ${H.num} · ${H.name}` + (RH.length > 1 ? ` (${holeIdx+1}/${RH.length})` : '');
+  $('holeName').textContent = `Hole ${numAt(holeIdx)} · ${H.name}` + (RH.length > 1 ? ` (${holeIdx+1}/${RH.length})` : '');
   $('holeMeta').innerHTML = (multi() ? `<span class="pdot" style="background:${you.color}"></span><b style="font-size:14px">${esc(you.name)}</b> · ` : '') + `Par ${H.par} · Throw ${strokes+1}`;
   const d = distToBasket(lie), dy = W.basket.y - lie.y;
   const elev = Math.abs(dy) >= 2 ? ` · ${dy < 0 ? '↓' : '↑'}${Math.abs(dy).toFixed(0)} m` : '';
@@ -1566,7 +1674,7 @@ function showPass(first){
   $('passDot').style.background = you.color;
   $('passName').textContent = `${you.name}'s turn`;
   const H = RH[holeIdx], d = distToBasket(lie);
-  $('passSub').textContent = first ? `Hole ${H.num} · ${H.name} · Par ${H.par} · ${d.toFixed(0)} m` : `Throw ${strokes+1} · ${d.toFixed(d<10?1:0)} m to the basket`;
+  $('passSub').textContent = first ? `Hole ${numAt(holeIdx)} · ${H.name} · Par ${H.par} · ${d.toFixed(0)} m` : `Throw ${strokes+1} · ${d.toFixed(d<10?1:0)} m to the basket`;
   $('passLb').innerHTML = holeIdx > 0 || !first ? leaderboardHTML(holeIdx) : '';
   $('passScreen').classList.remove('hidden');
 }
@@ -1597,7 +1705,7 @@ function startHole(i){
     ld.classList.add('hidden');
     updateOthers();
     if(multi()) showPass(true);
-    else flash(`Hole ${H.num} · ${H.name}<br><span style="font-size:20px">Par ${H.par} · ${distToBasket(lie).toFixed(0)} m</span>`, 2.4);
+    else flash(`Hole ${numAt(holeIdx)} · ${H.name}<br><span style="font-size:20px">Par ${H.par} · ${distToBasket(lie).toFixed(0)} m</span>`, 2.4);
   }, 30);
 }
 
@@ -1850,7 +1958,7 @@ function scorecardHTML(){
   for(let c0=0; c0<RH.length; c0+=9){
     const part = RH.slice(c0, c0+9), last = c0 + 9 >= RH.length, two = RH.length > 9;
     let h1 = '<tr><th></th>', h2 = '<tr><th>Par</th>'; let tp = 0;
-    part.forEach(H=>{ h1 += `<th>${H.num}</th>`; h2 += `<td>${H.par}</td>`; tp += H.par; });
+    part.forEach((H,k)=>{ h1 += `<th>${numAt(c0+k)}</th>`; h2 += `<td>${H.par}</td>`; tp += H.par; });
     let rows = h1 + `<th>${two ? (c0 ? 'In' : 'Out') : 'Σ'}</th>${last && two ? '<th>Tot</th>' : ''}</tr>` + h2 + `<td>${tp}</td>${last && two ? `<td>${RH.reduce((a,H)=>a+H.par,0)}</td>` : ''}</tr>`;
     for(const p of players){
       let r = `<tr><th>${multi() ? `<span class="pdot" style="background:${p.color}"></span>` + esc(p.name.split(' ')[0]).slice(0,7) : 'You'}</th>`, ts = 0, all = 0;
@@ -1874,7 +1982,7 @@ function showHoleCard(label){
   $('hsTitle').textContent = strokes===1 ? 'Hole in one!' : 'In the chains!';
   $('hsBig').textContent = label;
   $('hsSub').textContent = multi() ? 'Everyone is in · ' + players.map(p=>`${p.name.split(' ')[0]} ${p.scores[holeIdx]}`).join(' · ') : `${strokes} throw${strokes>1?'s':''} on a par ${H.par}`;
-  if(multi()){ $('hsTitle').textContent = `Hole ${RH[holeIdx].num} complete`; const best = Math.min(...players.map(p=>p.scores[holeIdx])); const w = players.filter(p=>p.scores[holeIdx]===best); $('hsBig').textContent = w.length===1 ? `${w[0].name} wins it` : 'Hole halved'; }
+  if(multi()){ $('hsTitle').textContent = `Hole ${numAt(holeIdx)} complete`; const best = Math.min(...players.map(p=>p.scores[holeIdx])); const w = players.filter(p=>p.scores[holeIdx]===best); $('hsBig').textContent = w.length===1 ? `${w[0].name} wins it` : 'Hole halved'; }
   $('card').innerHTML = scorecardHTML();
   $('lb').innerHTML = mode!=='practice' ? leaderboardHTML(holeIdx+1) : '';
   $('nextBtn').textContent = last ? 'Finish round' : 'Next hole';
@@ -2128,7 +2236,7 @@ function openOnline(code, hint){
 $('onlineBtn').addEventListener('click', ()=>openOnline(''));
 $('olHost').addEventListener('click', hostGame);
 $('olJoin').addEventListener('click', ()=>joinGame('', net.hint));
-$('olGo').addEventListener('click', ()=>{ if(!net.host || net.lobby.length < 2) return; const round = makeRound(settings.round || 'front', settings.quick || 'mix'); netSend({t:'start', lobby:net.lobby, round}); launchOnline(net.lobby, round); });
+$('olGo').addEventListener('click', ()=>{ if(!net.host || net.lobby.length < 2) return; const round = makeRound(settings.course || 'classic', settings.round || 'front'); netSend({t:'start', lobby:net.lobby, round}); launchOnline(net.lobby, round); });
 $('olBack').addEventListener('click', ()=>{ clearSession(); netClose(); $('onlineScreen').classList.add('hidden'); });
 $('olWhatsApp').addEventListener('click', ()=>{
   const txt = `Come and play disc golf with me! 🥏\nTap to join my game: ${inviteURL()}\n(or open Online play and type code ${net.code})`;
@@ -2143,7 +2251,7 @@ $('olMore').addEventListener('click', async ()=>{
 const SESS_KEY = 'discgolf-online-session';
 function makeSnap(){
   return {v:1, at:Date.now(), id:net.id, host:net.host, code:net.code, broker:net.broker, lobby:net.lobby, started:net.started, seq:net.seq||0,
-    holeIdx, cur, round:roundIdx, phase: state==='finished' ? 'finished' : 'play',
+    holeIdx, cur, round:{idx:roundIdx, nums:roundNums, course:roundInfo.course, key:roundInfo.key}, phase: state==='finished' ? 'finished' : 'play',
     players: players.map(p=>({scores:p.scores, lie:[p.lie.x,p.lie.y,p.lie.z], lastLie:[p.lastLie.x,p.lastLie.y,p.lastLie.z], strokes:p.strokes, done:p.done, gone:!!p.gone, ltd:p.lastThrowDist}))};
 }
 function saveSession(){ if(!net.code || !net.client || net.resuming) return; try{ localStorage.setItem(SESS_KEY, JSON.stringify(makeSnap())); }catch(e){} }
@@ -2237,13 +2345,13 @@ function onlineTurn(first){
   if(cur===myIdx){
     state = 'aim'; autoDisc(); updateHUD();
     $('waitBar').classList.add('hidden'); $('bottom').classList.remove('hidden');
-    flash(first ? `Hole ${H.num} · ${H.name}<br><span style="font-size:20px">Your throw · Par ${H.par}</span>` : 'Your turn!', 1.6);
+    flash(first ? `Hole ${numAt(holeIdx)} · ${H.name}<br><span style="font-size:20px">Your throw · Par ${H.par}</span>` : 'Your turn!', 1.6);
     try{ navigator.vibrate && navigator.vibrate(80); }catch(e){}
   } else {
     state = 'wait'; updateHUD();
     $('bottom').classList.add('hidden'); $('waitBar').classList.remove('hidden');
     $('waitBar').innerHTML = `<span class="pdot" style="background:${you.color}"></span>${esc(you.name)} is throwing… <span style="opacity:.6">(🔭 Scout to look around)</span>`;
-    if(first) flash(`Hole ${H.num} · ${H.name}<br><span style="font-size:20px">Par ${H.par}</span>`, 2);
+    if(first) flash(`Hole ${numAt(holeIdx)} · ${H.name}<br><span style="font-size:20px">Par ${H.par}</span>`, 2);
     processQueue();
   }
 }
