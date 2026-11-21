@@ -1,0 +1,469 @@
+// ===== Disc Golf Tour — core (pure JS: courses, terrain, obstacles, physics, CPU scoring) =====
+const Core = (function(){
+'use strict';
+const G = 9.81;
+
+// ---------- maths helpers ----------
+function rng(seed){ return function(){ seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function hash2(x, z){ let h = Math.imul(x|0, 374761393) ^ Math.imul(z|0, 668265263); h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; }
+function vnoise(x, z){
+  const xi = Math.floor(x), zi = Math.floor(z), xf = x - xi, zf = z - zi;
+  const u = xf*xf*(3-2*xf), v = zf*zf*(3-2*zf);
+  const a = hash2(xi,zi), b = hash2(xi+1,zi), c = hash2(xi,zi+1), d = hash2(xi+1,zi+1);
+  return a + (b-a)*u + (c-a)*v + (a-b-c+d)*u*v;
+}
+function fbm(x, z){ return vnoise(x,z)*0.57 + vnoise(x*2.07+5.3, z*2.07+1.7)*0.29 + vnoise(x*4.3+11.1, z*4.3+7.9)*0.14; }
+function smooth(a, b, x){ const t = Math.max(0, Math.min(1, (x-a)/(b-a))); return t*t*(3-2*t); }
+function distToSeg(px,pz,ax,az,bx,bz){ const dx=bx-ax, dz=bz-az; const L=dx*dx+dz*dz; let t=L?((px-ax)*dx+(pz-az)*dz)/L:0; t=Math.max(0,Math.min(1,t)); return Math.hypot(px-(ax+t*dx), pz-(az+t*dz)); }
+function distToPath(px,pz,path){ let d=1e9; for(let i=0;i<path.length-1;i++){ const e=distToSeg(px,pz,path[i][0],path[i][1],path[i+1][0],path[i+1][1]); if(e<d) d=e; } return d; }
+function gauss(r){ let u=0,v=0; while(u===0) u=r(); while(v===0) v=r(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+
+// ---------- discs ----------
+const DISCS = {
+  driver:{name:'Driver', max:30, kd:0.0034, lv:27, turn:-1, fade:2.4, skid:0.32, color:'#ff1f6e'},
+  mid:   {name:'Mid-range', max:25, kd:0.0042, lv:24, turn:0, fade:1.2, skid:0.22, color:'#ffd000'},
+  putter:{name:'Putter', max:19, kd:0.0055, lv:21, turn:0, fade:0.6, skid:0.12, color:'#00b8ff'}
+};
+
+// ---------- the nine holes ----------
+const HOLES = [
+  {name:'Meadow Rise', par:3, theme:'meadow', diff:0.0, seed:11,
+   path:[[0,0],[1,-40],[5,-82]], fw:22, base:0.5, hills:4.5,
+   features:[{k:'hill',x:-32,z:-55,r:30,h:7},{k:'hill',x:34,z:-28,r:26,h:6},{k:'hill',x:2,z:-58,r:16,h:3.5},{k:'hill',x:-10,z:-118,r:40,h:9}],
+   trees:{count:120, clear:13}, extraTrees:[[-8,-56],[10,-30]], rocks:8, wind:[1.5,0.8]},
+  {name:'Mill Pond', par:3, theme:'pond', diff:0.2, seed:23,
+   path:[[0,0],[7,-50],[-25,-92]], fw:22, base:2.6, hills:2.2, water:0,
+   features:[{k:'pond',x:-21,z:-47,r:15},{k:'pond',x:30,z:-80,r:8}],
+   trees:{count:130, clear:13}, extraTrees:[[-6,-75],[15,-72]], rocks:6, wind:[3,-1.2]},
+  {name:'Stone Gorge', par:3, theme:'gorge', diff:0.35, seed:37,
+   path:[[0,0],[2,-92]], fw:18, base:0.5, hills:1.0,
+   features:[{k:'chasm', path:[[-120,-36],[-30,-46],[10,-42],[120,-50]], w:22, depth:24}],
+   pillars:[{x:-7,z:-45,r:2.3,top:4},{x:12,z:-44,r:1.7,top:7},{x:-26,z:-46,r:2.6,top:2.5},{x:30,z:-47,r:2,top:5}],
+   trees:{count:60, clear:12, kinds:['pine']}, boulders:16, wind:[-2.5,1.5]},
+  {name:'Rolling Downs', par:4, theme:'downs', diff:0.35, seed:44,
+   path:[[0,0],[-12,-55],[6,-108],[0,-148]], fw:24, base:2, hills:6,
+   features:[{k:'hill',x:-30,z:-25,r:30,h:10},{k:'hill',x:18,z:-60,r:26,h:9},{k:'hill',x:-14,z:-88,r:20,h:-5},
+             {k:'hill',x:-6,z:-55,r:16,h:6},{k:'hill',x:30,z:-125,r:34,h:12},{k:'hill',x:0,z:-148,r:16,h:4},{k:'hill',x:-34,z:-150,r:30,h:8}],
+   trees:{count:110, clear:14, kinds:['oak','oak','pine','birch']}, extraTrees:[[4,-80],[-8,-128]], rocks:10, wind:[3.5,-1.5]},
+  {name:'Darkwood', par:4, theme:'forest', diff:0.5, seed:53,
+   path:[[0,0],[-6,-55],[18,-100],[12,-142]], fw:13, base:0.5, hills:3.5, windFactor:0.55,
+   features:[], trees:{count:560, clear:7.5, gap:2.6, kinds:['pine','pine','oak','birch']},
+   extraTrees:[[-3,-30],[8,-78],[16,-121]], rocks:10, wind:[1.5,2]},
+  {name:'Island Green', par:3, theme:'sea', diff:0.5, seed:61, sea:true, water:0,
+   path:[[0,0],[5,-86]], fw:0,
+   islands:[{x:0,z:3,r:19,h:1.8},{x:5,z:-86,r:13.5,h:1.5},{x:-30,z:-50,r:7.5,h:1.0},{x:28,z:-40,r:5.5,h:0.9}],
+   palms:true, wind:[4,1.5]},
+  {name:'Hilltop Drop', par:3, theme:'hill', diff:0.15, seed:71,
+   path:[[0,0],[-4,-55],[-8,-108]], fw:22, base:2.4, hills:2.5, water:0,
+   features:[{k:'hill',x:0,z:1,r:38,h:15},{k:'stream',path:[[-120,-66],[-20,-62],[20,-68],[120,-62]],w:7}],
+   trees:{count:120, clear:13}, rocks:8, wind:[-3,-2]},
+  {name:'Canyon Run', par:4, theme:'canyon', diff:0.4, seed:83,
+   path:[[0,0],[12,-50],[-10,-100],[4,-152]], fw:18, base:0.3, hills:0.6, windFactor:0.75,
+   features:[{k:'canyon', path:[[0,40],[0,0],[12,-50],[-10,-100],[4,-152],[4,-200]], w:28, h:20}],
+   trees:{count:70, clear:30, kinds:['pine']}, boulders:18, wind:[2,-4]},
+  {name:'Archipelago', par:4, theme:'sea', diff:0.6, seed:97, sea:true, water:0,
+   path:[[0,0],[-14,-68],[6,-152]], fw:0,
+   islands:[{x:0,z:3,r:18,h:1.8},{x:-14,z:-68,r:21,h:2.6},{x:26,z:-58,r:8,h:1.0},{x:6,z:-152,r:15,h:1.8},{x:-42,z:-118,r:9,h:1.2},{x:5,z:-103,r:5.5,h:1.2,small:true}],
+   lighthouse:{x:-22,z:-75}, palms:true, wind:[-5,2]}
+];
+HOLES.forEach(H=>{ H.basket = H.path[H.path.length-1]; if(H.windFactor==null) H.windFactor = 1; });
+
+// ---------- terrain ----------
+// returns a function (x,z) -> shared {h, type}
+function makeTerrain(H){
+  const out = {h:0, type:'grass'};
+  const W = H.water != null ? H.water : -999;
+  const feats = H.features || [];
+  const room = H.room;
+  const bx = H.basket[0], bz = H.basket[1];
+  return function(x, z){
+    let h, type;
+    if(H.sea){
+      h = -4 + fbm(x*0.03, z*0.03)*1.2;
+      for(const is of H.islands){
+        const d = Math.hypot(x-is.x, z-is.z); if(d > is.r*1.6) continue;
+        const e = d/is.r + (fbm(x*0.09+is.x, z*0.09+is.z)-0.5)*0.4;
+        const top = is.h + (fbm(x*0.05, z*0.05)-0.5)*0.6;
+        const ih = -4 + (top+4)*(1 - smooth(0.6, 1.35, e));
+        if(ih > h) h = ih;
+      }
+      type = h < W ? 'water' : h < W + 0.55 ? 'sand' : 'grass';
+    } else {
+      const dTB = Math.min(Math.hypot(x, z), Math.hypot(x-bx, z-bz));
+      h = H.base + (fbm(x*0.02+H.seed, z*0.02-H.seed)-0.5)*2*H.hills*(0.2 + 0.8*smooth(3, 16, dTB));
+      type = null;
+      if(room){
+        const dx = Math.max(room.x0 - x, 0, x - room.x1), dz = Math.max(room.z0 - z, 0, z - room.z1);
+        const dr = Math.hypot(dx, dz);
+        h = H.base + (h - H.base)*smooth(2, 14, dr);
+        if(dr === 0){ h = 0; type = 'concrete'; }
+        else if(dr < 1.2) type = 'concrete';
+        else type = 'out';
+      }
+      for(const f of feats){
+        if(f.k==='hill'){ const d = Math.hypot(x-f.x, z-f.z); if(d < f.r) h += f.h*(0.5+0.5*Math.cos(Math.PI*d/f.r)); }
+        else if(f.k==='pond'){ const d = Math.hypot(x-f.x, z-f.z) + (fbm(x*0.12, z*0.12)-0.5)*4; if(d < f.r*1.4){ const t = 1 - smooth(f.r*0.7, f.r*1.35, d); h = h + (-1.6 - h)*t; } }
+        else if(f.k==='stream'){ const d = distToPath(x, z, f.path) + (fbm(x*0.1, z*0.1)-0.5)*3; if(d < f.w){ const t = 1 - smooth(f.w*0.3, f.w*0.9, d); h = h + (-1.3 - h)*t; } }
+        else if(f.k==='chasm'){
+          const d = distToPath(x, z, f.path) + (fbm(x*0.08, z*0.08)-0.5)*7;
+          if(d < f.w/2 + 1.5){ const t = 1 - smooth(f.w/2 - 1.2, f.w/2 + 1.2, d); h = h + (-f.depth + fbm(x*0.2,z*0.2)*3 - h)*t; if(t > 0.5) type = 'gorge'; }
+        }
+        else if(f.k==='canyon'){
+          const d = distToPath(x, z, f.path) + (fbm(x*0.07, z*0.07)-0.5)*8;
+          const t = smooth(f.w/2, f.w/2 + 6, d);
+          h += f.h*t*(0.85 + 0.3*fbm(x*0.04, z*0.04));
+          if(t > 0.12) type = 'rock'; else type = 'canyonfloor';
+        }
+      }
+      if(h < W) type = 'water';
+      else if(!type || type==='canyonfloor'){
+        const dp = H.fw ? distToPath(x, z, H.path) : 1e9;
+        const db = Math.hypot(x-bx, z-bz);
+        if(db < 9) type = 'green';
+        else if(dp < H.fw/2) type = 'fair';
+        else if(!type) type = H.theme==='forest' ? 'forest' : H.theme==='gorge' ? 'stone' : 'grass';
+      }
+    }
+    out.h = h; out.type = type; return out;
+  };
+}
+const OB_TYPES = {water:'ob-water', gorge:'ob-gorge', out:'ob-out'};
+
+// ---------- obstacles ----------
+function makeTree(r, x, z, y0, kind, trees){
+  const s = 0.8 + r()*0.6;
+  const t = {x, z, y0, kind, s, rot:r()*6.283, blobs:[], col:r()};
+  if(kind==='pine'){
+    t.th0 = 1.5*s; t.tr = 0.22*s; t.th = t.th0 + 4.2*s;
+    for(let i=0;i<3;i++){ const rad = (2.0 - i*0.5)*s, hh = 2.4*s; const y = y0 + t.th0 + i*1.25*s + hh/2 - 0.3; t.blobs.push({x, y:y-hh*0.15, z, r:rad*0.72, cone:{rad, hh, y}}); }
+  } else if(kind==='palm'){
+    t.th0 = 5.5*s; t.tr = 0.2*s; t.th = t.th0; t.lean = (r()-0.5)*0.5; t.leanDir = r()*6.283;
+    const tx = x + Math.cos(t.leanDir)*t.lean*t.th0*0.5, tz = z + Math.sin(t.leanDir)*t.lean*t.th0*0.5;
+    t.top = [tx, y0 + t.th0, tz];
+    t.blobs.push({x:tx, y:y0 + t.th0, z:tz, r:2.0*s});
+  } else {
+    const birch = kind==='birch';
+    t.th0 = (birch?3.2:2.6)*s; t.tr = (birch?0.18:0.26)*s;
+    const n = 2 + Math.floor(r()*2);
+    for(let i=0;i<n;i++){
+      const rad = (birch?1.2:1.6 + r()*0.9)*s;
+      const ox = (r()-0.5)*1.4*s, oz = (r()-0.5)*1.4*s, y = y0 + t.th0 + rad*0.6 + i*0.9*s;
+      t.blobs.push({x:x+ox, y, z:z+oz, r:rad*0.95, ball:{rad, ox, oz}});
+    }
+    t.th = t.th0 + 0.3;
+  }
+  trees.push(t);
+  return t;
+}
+
+function genObstacles(H, T){
+  const r = rng(H.seed*7 + 3);
+  const trees = [], boxes = [], cyls = [], spheres = [], deco = [];
+  const B = {x:H.basket[0], z:H.basket[1]};
+  // bounds of play
+  let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
+  for(const [x,z] of H.path){ minX=Math.min(minX,x); maxX=Math.max(maxX,x); minZ=Math.min(minZ,z); maxZ=Math.max(maxZ,z); }
+  if(H.islands) for(const is of H.islands){ minX=Math.min(minX,is.x-is.r); maxX=Math.max(maxX,is.x+is.r); minZ=Math.min(minZ,is.z-is.r); maxZ=Math.max(maxZ,is.z+is.r); }
+  const bounds = {minX:minX-45, maxX:maxX+45, minZ:minZ-40, maxZ:maxZ+25};
+  const near = (x,z,list,g)=>list.some(t=>Math.abs(t.x-x)<g && Math.abs(t.z-z)<g && Math.hypot(t.x-x,t.z-z)<g);
+
+  // trees
+  if(H.trees && H.trees.count){
+    const tc = H.trees, kinds = tc.kinds || ['oak','oak','pine'], gap = tc.gap || 3.2;
+    let tries = 0;
+    while(trees.length < tc.count && tries++ < tc.count*30){
+      const x = bounds.minX - 25 + r()*(bounds.maxX-bounds.minX+50), z = bounds.minZ - 30 + r()*(bounds.maxZ-bounds.minZ+50);
+      const g = T(x,z); const ty = g.type, y0 = g.h;
+      if(ty==='water'||ty==='gorge'||ty==='concrete'||ty==='fair'||ty==='green'||ty==='sand') continue;
+      if(H.theme==='canyon' && ty!=='rock') continue;
+      if(H.theme==='canyon' && y0 < 12) continue;
+      if(H.room && ty!=='out') continue;
+      if(H.fw && distToPath(x,z,H.path) < tc.clear + r()*4) continue;
+      if(Math.hypot(x,z) < 8 || Math.hypot(x-B.x,z-B.z) < 7) continue;
+      if(near(x,z,trees,gap)) continue;
+      makeTree(r, x, z, y0, kinds[Math.floor(r()*kinds.length)], trees);
+    }
+  }
+  for(const [x,z] of (H.extraTrees||[])) makeTree(r, x, z, T(x,z).h, H.theme==='forest'?'pine':'oak', trees);
+  // palms on islands
+  if(H.palms){
+    for(const is of H.islands){
+      if(is.small) continue;
+      const n = Math.max(2, Math.round(is.r*0.6));
+      for(let k=0,tries=0;k<n && tries<200;tries++){
+        const a = r()*6.283, d = is.r*(0.25 + r()*0.6); const x = is.x + Math.cos(a)*d, z = is.z + Math.sin(a)*d;
+        const g = T(x,z); if(g.type==='water') continue;
+        if(Math.hypot(x,z) < 6 || Math.hypot(x-B.x,z-B.z) < 6) continue;
+        if(near(x,z,trees,3)) continue;
+        if(H.lighthouse && Math.hypot(x-H.lighthouse.x, z-H.lighthouse.z) < 5) continue;
+        if(distToPath(x,z,H.path) < 4) continue;
+        makeTree(r, x, z, g.h, 'palm', trees); k++;
+      }
+    }
+  }
+  // rocks / boulders
+  const nb = (H.rocks||0) + (H.boulders||0);
+  for(let k=0,tries=0;k<nb && tries<600;tries++){
+    let x, z;
+    if(H.theme==='canyon'){ const i = Math.floor(r()*(H.path.length-1)); const t = r(); x = H.path[i][0] + (H.path[i+1][0]-H.path[i][0])*t + (r()-0.5)*20; z = H.path[i][1] + (H.path[i+1][1]-H.path[i][1])*t + (r()-0.5)*6; }
+    else { x = bounds.minX + r()*(bounds.maxX-bounds.minX); z = bounds.minZ + r()*(bounds.maxZ-bounds.minZ); }
+    const g = T(x,z); if(g.type==='water'||g.type==='gorge'||g.type==='green') continue;
+    if(H.theme==='canyon' && g.type!=='canyonfloor' && g.type!=='fair') continue;
+    if(Math.hypot(x,z) < 9 || Math.hypot(x-B.x,z-B.z) < 9) continue;
+    if(H.theme!=='canyon' && H.fw && distToPath(x,z,H.path) < H.fw/2 + 1) continue;
+    const big = H.boulders ? (0.9 + r()*1.6) : (0.4 + r()*0.8);
+    spheres.push({x, y:g.h + big*0.35, z, r:big, sx:1+r()*0.4, sy:0.7+r()*0.3, sz:1+r()*0.4, rot:r()*6, kind:'rock'});
+    k++;
+  }
+  // gorge pillars
+  for(const p of (H.pillars||[])){ const top = T(p.x+6, p.z).h > -5 ? H.base + p.top : p.top; cyls.push({x:p.x, z:p.z, r:p.r, y0:-30, y1:H.base + p.top, kind:'pillar'}); }
+  // lighthouse
+  if(H.lighthouse){ const g = T(H.lighthouse.x, H.lighthouse.z); cyls.push({x:H.lighthouse.x, z:H.lighthouse.z, r:1.7, y0:g.h-1, y1:g.h+15, kind:'lighthouse', ob:true}); }
+  // warehouse
+  if(H.room) genWarehouse(H, r, boxes, cyls, deco);
+  return {trees, boxes, cyls, spheres, deco, bounds};
+}
+
+function box(x0,y0,z0,x1,y1,z1,kind,extra){ return Object.assign({min:[Math.min(x0,x1),Math.min(y0,y1),Math.min(z0,z1)], max:[Math.max(x0,x1),Math.max(y0,y1),Math.max(z0,z1)], kind}, extra||{}); }
+function genWarehouse(H, r, boxes, cyls, deco){
+  const R = H.room, WH = R.h, X0 = R.x0, X1 = R.x1, Z0 = R.z0, Z1 = R.z1;
+  boxes.push(box(X0-0.6,0,Z1, X1+0.6,WH,Z1+0.6,'wall',{ob:true}));
+  boxes.push(box(X0-0.6,0,Z0-0.6, X1+0.6,WH,Z0,'wall',{ob:true}));
+  boxes.push(box(X0-0.6,0,Z0, X0,WH,Z1,'wall',{ob:true}));
+  boxes.push(box(X1,0,Z0, X1+0.6,WH,Z1,'wall',{ob:true}));
+  for(let z=Z1, i=0; z>Z0; z-=10, i++){
+    boxes.push(box(X0,WH,z-0.25, X1,WH+0.6,z+0.25,'truss',{ob:true}));
+    if(i%2===0) boxes.push(box(X0-0.6,WH+0.6,Math.max(Z0,z-10), X1+0.6,WH+0.9,z,'roof',{ob:true}));
+  }
+  // shipping containers (2.6 m wide/high). Each wall row leaves gaps to thread a throw through.
+  const CW = 2.6, cols = ['#c8402f','#2f6fb3','#e0a92a','#3a8a5a','#7a5aa8','#d8642a','#4f6f7f'];
+  const cont = (x0,x1,z,stack,alongZ)=>{ for(let k=0;k<stack;k++){ const c = cols[Math.floor(r()*cols.length)];
+    if(alongZ) boxes.push(box(z-CW/2, k*CW, x0, z+CW/2, (k+1)*CW, x1, 'container', {col:c, alongZ:true}));
+    else boxes.push(box(x0, k*CW, z-CW/2, x1, (k+1)*CW, z+CW/2, 'container', {col:c})); } };
+  // row 1: single height — loft over it or slip through a gap
+  cont(X0,-19.5,-34,1); cont(-14.5,-2.3,-34,1); cont(2.3,14.5,-34,2); cont(19.5,X1,-34,1);
+  // row 2: double stacked wall, gaps in different places
+  cont(X0,-23,-72,2); cont(-18.5,-6.3,-72,2); cont(-1.5,10.7,-72,2); cont(15.3,X1,-72,2);
+  // row 3: staggered blocks guarding the basket
+  cont(-26,-13.8,-98,2); cont(-4,8.2,-95,1); cont(14,26.2,-101,3);
+  // containers running lengthways down the sides
+  cont(-20,-8,-25,1,true); cont(-60,-48,23,2,true); cont(-118,-106,-21,2,true); cont(-128,-116,22,1,true);
+  // steel columns
+  for(const x of [-12, 12]) for(const z of [-16, -54, -86, -116]) boxes.push(box(x-0.3,0,z-0.3, x+0.3,WH,z+0.3,'column'));
+  // crate stacks
+  const stacks = [[-6,-14,1],[8,-50,2],[-27,-56,3],[-24.6,-57.5,1],[28,-86,2],[-8,-112,1],[16,-124,2],[-28,-122,1]];
+  for(const [x,z,n] of stacks){ const s = 1.3; for(let i=0;i<n;i++){ const ox = (r()-0.5)*0.2, oz = (r()-0.5)*0.2; boxes.push(box(x-s/2+ox, i*s, z-s/2+oz, x+s/2+ox, (i+1)*s, z+s/2+oz, 'crate', {rot:(r()-0.5)*0.25})); } }
+  boxes.push(box(15.5,0,-18.3, 18.5,2.2,-15.7,'forklift'));
+  deco.push({kind:'lane', z0:Z0+2, z1:Z1-2});
+}
+
+// ---------- world & collision ----------
+function makeWorld(H){
+  const T = makeTerrain(H);
+  const O = genObstacles(H, T);
+  const by = T(H.basket[0], H.basket[1]).h;
+  return Object.assign({H, T, basket:{x:H.basket[0], y:by, z:H.basket[1]}, wind:{x:0,z:0}, wf:H.windFactor, events:[]}, O);
+}
+function ev(w, e){ if(w.events.length < 8) w.events.push(e); }
+
+// highest surface under (x,z) at or below height y (terrain or the top of a box / column)
+function surface(w, x, z, y){
+  let s = w.T(x, z).h, on = null;
+  for(const b of w.boxes){ if(x>=b.min[0]&&x<=b.max[0]&&z>=b.min[2]&&z<=b.max[2]&&b.max[1]<=y+0.4&&b.max[1]>s){ s=b.max[1]; on=b; } }
+  for(const c of w.cyls){ if(Math.abs(x-c.x)<=c.r && Math.abs(z-c.z)<=c.r && Math.hypot(x-c.x,z-c.z)<=c.r && c.y1<=y+0.4 && c.y1>s){ s=c.y1; on=c; } }
+  return {s, on};
+}
+
+function collide(w, f, px, py, pz, rolling){
+  const p = f.pos, v = f.vel;
+  // trees
+  for(const t of w.trees){
+    const dx = p.x-t.x, dz = p.z-t.z;
+    if(dx > 7 || dx < -7 || dz > 7 || dz < -7) continue;
+    const dh = Math.hypot(dx, dz);
+    if(p.y < t.y0 + t.th && p.y > t.y0 - 0.5 && dh < t.tr + 0.1){
+      const nx = dx/(dh||1), nz = dz/(dh||1);
+      p.x = t.x + nx*(t.tr+0.11); p.z = t.z + nz*(t.tr+0.11);
+      const vn = v.x*nx + v.z*nz; if(vn < 0){ v.x -= 1.7*vn*nx; v.z -= 1.7*vn*nz; }
+      v.x*=0.3; v.y*=0.3; v.z*=0.3; if(!rolling) v.y = Math.min(v.y, 0);
+      if(!f.hit || f.t - f.hitT > 0.25) ev(w,'thunk'); f.hit = true; f.hitT = f.t;
+      return;
+    }
+    if(!rolling) for(const b of t.blobs){
+      const ex = p.x-b.x, ey = p.y-b.y, ez = p.z-b.z;
+      if(ex*ex+ey*ey+ez*ez < b.r*b.r){
+        if(!f.inLeaves){ ev(w,'leaves'); f.inLeaves = true; }
+        v.x*=0.94; v.y*=0.94; v.z*=0.94; f.hit = true; f.hitT = f.t; f.leafT = f.t; return;
+      }
+    }
+  }
+  // vertical columns (pillars, lighthouse)
+  for(const c of w.cyls){
+    const dx = p.x-c.x, dz = p.z-c.z; const dh = Math.hypot(dx,dz);
+    if(dh < c.r + 0.1 && p.y < c.y1 && p.y > c.y0){
+      if(py >= c.y1 - 0.05) continue; // coming from above -> landing handled by surface()
+      const nx = dx/(dh||1), nz = dz/(dh||1);
+      p.x = c.x + nx*(c.r+0.11); p.z = c.z + nz*(c.r+0.11);
+      const vn = v.x*nx + v.z*nz; if(vn < 0){ v.x -= 1.6*vn*nx; v.z -= 1.6*vn*nz; }
+      v.x*=0.4; v.z*=0.4; ev(w,'thunk'); f.hit = true; f.hitT = f.t;
+    }
+  }
+  // boxes
+  const e = 0.08;
+  for(const b of w.boxes){
+    if(p.x < b.min[0]-e || p.x > b.max[0]+e || p.y < b.min[1]-e || p.y > b.max[1]+e || p.z < b.min[2]-e || p.z > b.max[2]+e) continue;
+    if(py >= b.max[1]-0.05) continue; // from above -> landing
+    if(px < b.min[0]-e || px > b.max[0]+e){ p.x = px; v.x *= -0.35; v.y *= 0.7; v.z *= 0.7; }
+    else if(pz < b.min[2]-e || pz > b.max[2]+e){ p.z = pz; v.z *= -0.35; v.x *= 0.7; v.y *= 0.7; }
+    else if(py < b.min[1]-e){ p.y = py; v.y = -Math.abs(v.y)*0.3; v.x *= 0.7; v.z *= 0.7; }
+    else { p.y = b.max[1] + 0.05; }
+    ev(w, b.kind==='crate' ? 'thunk' : 'clank'); f.hit = true; f.hitT = f.t;
+  }
+  // boulders
+  for(const s of w.spheres){
+    const dx = p.x-s.x, dy = p.y-s.y, dz = p.z-s.z; const R = s.r*0.95 + 0.08;
+    if(Math.abs(dx) > R || Math.abs(dz) > R) continue;
+    const d = Math.hypot(dx,dy,dz); if(d >= R) continue;
+    const nx = dx/(d||1), ny = dy/(d||1), nz = dz/(d||1);
+    p.x = s.x + nx*R; p.y = s.y + ny*R; p.z = s.z + nz*R;
+    const vn = v.x*nx + v.y*ny + v.z*nz; if(vn < 0){ v.x -= 1.4*vn*nx; v.y -= 1.4*vn*ny; v.z -= 1.4*vn*nz; }
+    v.x*=0.6; v.y*=0.6; v.z*=0.6;
+    if(!f.hit || f.t - f.hitT > 0.2) ev(w,'thunk'); f.hit = true; f.hitT = f.t;
+  }
+}
+
+function basketCheck(w, f){
+  const B = w.basket, p = f.pos, v = f.vel; const dx = p.x-B.x, dz = p.z-B.z; const dh = Math.hypot(dx,dz); const y = p.y - B.y;
+  if(dh > 0.6) return null;
+  if(dh < 0.42 && y > 0.72 && y < 1.48) return 'in';
+  if(dh < 0.31 && y > 0.5 && y <= 0.72 && v.y < 0) return 'in';
+  if((dh < 0.36 && y >= 1.48 && y < 1.56) || (dh > 0.3 && dh < 0.4 && y > 0.5 && y < 0.75) || (dh < 0.12 && y <= 0.5 && y > 0)){
+    const nx = dx/(dh||1), nz = dz/(dh||1); const sp = Math.hypot(v.x,v.y,v.z);
+    v.x = nx*sp*0.25; v.z = nz*sp*0.25; v.y = Math.min(v.y,0)*0.3; p.x = B.x + nx*0.45; p.z = B.z + nz*0.45; ev(w,'clank');
+  }
+  return null;
+}
+
+function outside(w, x, z){ const b = w.bounds; return x < b.minX-60 || x > b.maxX+60 || z < b.minZ-60 || z > b.maxZ+60; }
+
+function landType(w, f, on){
+  if(on) return on.ob ? 'ob-roof' : null;
+  const ty = w.T(f.pos.x, f.pos.z).type;
+  if(OB_TYPES[ty]) return OB_TYPES[ty];
+  if(outside(w, f.pos.x, f.pos.z)) return 'ob-out';
+  return null;
+}
+
+function newFlight(pos, vel, relT){ const v0 = Math.hypot(vel.x,vel.y,vel.z); return {pos, vel, v0, relT, t:0, spin:0, hit:false, hitT:0, inLeaves:false, leafT:0, lat:0, rollT:0}; }
+
+function stepFlight(w, f, D, dt){
+  const p = f.pos, v = f.vel; const px = p.x, py = p.y, pz = p.z;
+  const wx = w.wind.x*w.wf, wz = w.wind.z*w.wf;
+  const rx = v.x - wx, rz = v.z - wz;
+  const hRel = Math.hypot(rx, rz) || 1e-3, spRel = Math.hypot(rx, v.y, rz);
+  const h = Math.hypot(v.x, v.z) || 1e-3;
+  const climb = Math.max(0, Math.atan2(v.y, hRel) - 0.12);
+  const kd = D.kd*(1 + climb*4);
+  let ax = -kd*spRel*rx + wx*0.07, ay = -G - kd*spRel*v.y, az = -kd*spRel*rz + wz*0.07;
+  if(!(f.leafT && f.t - f.leafT < 0.15)) ay += G*Math.min(0.85, Math.pow(hRel/D.lv, 1.3))*Math.max(0, 1 - climb*2.5);
+  const s = Math.min(1, h/Math.max(f.v0,1)); const fx = v.x/h, fz = v.z/h; const rgx = -fz, rgz = fx;
+  const sf = f.v0/D.max;
+  const lat = (-D.turn*1.3*s*s*sf*sf) - D.fade*1.8*Math.pow(1-s,1.2)*sf + f.relT*6.5*Math.sqrt(s)*(0.5+0.5*sf);
+  ax += rgx*lat; az += rgz*lat;
+  v.x += ax*dt; v.y += ay*dt; v.z += az*dt;
+  p.x += v.x*dt; p.y += v.y*dt; p.z += v.z*dt;
+  f.t += dt; f.spin += dt*(20 + h); f.lat = lat;
+  if(f.leafT && f.t - f.leafT > 0.3) f.inLeaves = false;
+  collide(w, f, px, py, pz, false);
+  const b = basketCheck(w, f); if(b) return b;
+  const su = surface(w, p.x, p.z, py);
+  if(p.y <= su.s + 0.02){
+    const prev = surface(w, px, pz, py).s;
+    if(su.s - prev > 0.7 && py < su.s - 0.25){ p.x = px; p.z = pz; v.x *= -0.3; v.z *= -0.3; ev(w,'thunk'); f.hit = true; f.hitT = f.t; return null; }
+    p.y = su.s + 0.02;
+    const ob = landType(w, f, su.on); if(ob) return ob;
+    const hs = Math.hypot(v.x, v.z), vy = -v.y;
+    const gty = su.on ? 'hard' : w.T(p.x, p.z).type;
+    const soft = gty==='sand' || gty==='forest';
+    const bank = f.relT*0.45 + (f.lat||0)*0.04;
+    // 1) skip: a fast, shallow landing hops off the ground
+    if(!f.hit && !soft && (f.bounces||0) < 2 && hs > 7 && vy > 1.2 && vy < hs*0.6){
+      f.bounces = (f.bounces||0) + 1; v.y = vy*0.28; v.x *= 0.72; v.z *= 0.72; p.y = su.s + 0.05; ev(w,'land'); return null;
+    }
+    // 2) roller: lands tilted on its edge and rolls away, curving towards the side it leans
+    if(!f.hit && !soft && bank > 0.32 && hs > 7){ f.edge = 1; v.x *= 0.62; v.z *= 0.62; }
+    // hyzer landing: the low edge digs in, it skids short and kicks left
+    else if(!f.hit && bank < -0.32){ const k = D.skid*0.8, a = -0.35, c = Math.cos(a), sn = Math.sin(a), vx = v.x*k, vz = v.z*k; v.x = vx*c - vz*sn; v.z = vz*c + vx*sn; f.edge = 0; f.wob = 0.6; }
+    // 3) flat landing: slides and spins to a stop
+    else { const k = f.hit ? 0.15 : soft ? D.skid*0.4 : D.skid*1.25; v.x *= k; v.z *= k; f.edge = 0; }
+    v.y = 0; if(!(f.wob > 0)) f.wob = 0; f.bank = bank;
+    ev(w,'land'); f.on = su.on; return 'land';
+  }
+  if(f.t > 14 || outside(w, p.x, p.z) || p.y < -40) return 'ob-out';
+  return null;
+}
+
+function stepRoll(w, f, dt){
+  const p = f.pos, v = f.vel; const px = p.x, pz = p.z;
+  f.rollT += dt;
+  const su = surface(w, p.x, p.z, p.y + 0.3);
+  let gx = 0, gz = 0;
+  if(!su.on){ const e = 0.6; gx = (w.T(p.x+e,p.z).h - w.T(p.x-e,p.z).h)/(2*e); gz = (w.T(p.x,p.z+e).h - w.T(p.x,p.z-e).h)/(2*e); }
+  const slope = Math.hypot(gx, gz);
+  const gs = f.edge ? 0.8 : 0.5;
+  if(slope > 0.12 || f.edge){ v.x -= G*gs*gx*dt; v.z -= G*gs*gz*dt; }
+  let sp = Math.hypot(v.x, v.z);
+  if(f.wob > 0) f.wob = Math.max(0, f.wob - dt*0.8);
+  if((sp < 0.08 && slope < 0.35 && !f.edge && f.wob < 0.25) || f.rollT > 12) return 'rest';
+  if(f.edge){
+    // rolling on its edge: low friction, the turn tightens as it slows, then it falls over
+    const om = f.edge*(0.15 + 2.4/(sp + 1.5)), a = om*dt, c = Math.cos(a), s = Math.sin(a);
+    const vx = v.x, vz = v.z; v.x = vx*c - vz*s; v.z = vz*c + vx*s;
+    const dec = Math.min(sp, 2.6*dt); if(sp > 0){ v.x -= v.x/sp*dec; v.z -= v.z/sp*dec; }
+    f.spin += dt*sp/0.106;
+    if(sp < 1.4){ f.edge = 0; f.wob = 1; v.x *= 0.3; v.z *= 0.3; ev(w,'land'); }
+  } else {
+    const dec = Math.min(sp, 4.5*dt); if(sp > 0){ v.x -= v.x/sp*dec; v.z -= v.z/sp*dec; }
+  }
+  p.x += v.x*dt; p.z += v.z*dt;
+  collide(w, f, px, p.y, pz, true);
+  const s2 = surface(w, p.x, p.z, p.y + 0.3);
+  if(s2.s > p.y + 0.6){ p.x = px; p.z = pz; v.x *= -0.3; v.z *= -0.3; }
+  else p.y = s2.s + 0.02;
+  const B = w.basket; const db = Math.hypot(p.x-B.x, p.z-B.z);
+  if(db < 0.18){ const n = Math.atan2(p.z-B.z, p.x-B.x); p.x = B.x + Math.cos(n)*0.2; p.z = B.z + Math.sin(n)*0.2; v.x = v.z = 0; }
+  if(!f.edge) f.spin += dt*(sp*6 + 4); f.on = s2.on;
+  const ob = landType(w, f, s2.on); if(ob) return ob;
+  return null;
+}
+
+// ---------- tournaments & CPU players ----------
+const TOURS = [
+  {name:'Village Open', blurb:'Friendly locals. Finish top 3 to unlock the County Classic.', skill:[0.15,0.5], wind:[1,5]},
+  {name:'County Classic', blurb:'Club players who know their lines. Top 3 unlocks the Nationals.', skill:[0.4,0.75], wind:[2,7]},
+  {name:'National Championship', blurb:'The best in the country, in big wind.', skill:[0.65,1.0], wind:[3,9]}
+];
+const CPU_NAMES = ['Maya Ruiz','Tom Okafor','Sven Larsen','Priya Shah','Jonny Hale','Aiko Tanaka','Callum Reid','Rosa Bianchi','Dev Patel','Erin Walsh','Luca Moretti','Hannah Price','Kofi Mensah','Freya Lund','Ollie Grant','Nina Kowalski'];
+function makeField(tier, seed){
+  const r = rng(seed); const T = TOURS[tier];
+  const names = CPU_NAMES.slice(); for(let i=names.length-1;i>0;i--){ const j = Math.floor(r()*(i+1)); [names[i],names[j]] = [names[j],names[i]]; }
+  return names.slice(0,7).map(n=>({name:n, skill: T.skill[0] + r()*(T.skill[1]-T.skill[0]), scores:[]}));
+}
+function cpuScore(skill, H, r, windSpeed){
+  if(H.par===3 && r() < 0.012*skill) return 1;                         // ace!
+  const mu = H.diff + 0.6 - 1.7*skill + windSpeed*0.03;
+  const s = Math.round(H.par + mu + gauss(r)*0.75);
+  return Math.max(2, Math.min(H.par + 4, s));
+}
+function holeWinds(tier, seed){
+  const r = rng(seed*31 + 7);
+  return HOLES.map(H=>{
+    if(tier < 0) return {x:H.wind[0], z:H.wind[1]};
+    const W = TOURS[tier].wind; const sp = W[0] + r()*(W[1]-W[0]); const a = r()*Math.PI*2;
+    return {x:Math.sin(a)*sp, z:Math.cos(a)*sp};
+  });
+}
+
+return {G, rng, fbm, smooth, distToPath, DISCS, HOLES, makeTerrain, makeWorld, surface, newFlight, stepFlight, stepRoll, TOURS, makeField, cpuScore, holeWinds, OB_TYPES};
+})();
+if(typeof module !== 'undefined') module.exports = Core;
