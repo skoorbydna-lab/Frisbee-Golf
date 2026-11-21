@@ -974,7 +974,7 @@ let W = null;            // physics world for the current hole
 let course = null;       // {group, tee, sock}
 function groundAt(x, z){ return W ? W.T(x, z).h : 0; }
 
-const TCOL = REAL ? {fair:'#245a1c', green:'#3f8c2c', grass:'#7f8f40', out:'#7f8f40', forest:'#4d5e2a', stone:'#8a9264', sand:'#d8c79a', concrete:'#a9a69f', rock:'#a97f58', canyonfloor:'#c9a97c', water:'#5f7a52', gorge:'#6e655a'} : {fair:'#327a25', green:'#4fae36', grass:'#9aae4c', out:'#9aae4c', forest:'#5d7a34', stone:'#94a26c', sand:'#ecd9a4', concrete:'#bdbab2',
+const TCOL = REAL ? {fair:'#245a1c', green:'#3f8c2c', grass:'#6f9c4a', out:'#6f9c4a', forest:'#4e6e34', stone:'#8a9264', sand:'#d8c79a', concrete:'#a9a69f', rock:'#a97f58', canyonfloor:'#c9a97c', water:'#5f7a52', gorge:'#6e655a'} : {fair:'#327a25', green:'#4fae36', grass:'#86b85a', out:'#86b85a', forest:'#5d7f3c', stone:'#94a26c', sand:'#ecd9a4', concrete:'#bdbab2',
               rock:'#bb8a5d', canyonfloor:'#dcbc8b', water:'#6f8a62', gorge:'#7b6f62'};
 function buildTerrain(group){
   const H = W.H, b = W.bounds, margin = H.sea ? 80 : 230;
@@ -1019,7 +1019,7 @@ function buildTerrain(group){
   if(REAL) detailTex.repeat.set((x1-x0)/3.2, (z1-z0)/3.2);
   const m = new THREE.Mesh(g, matTerrain); m.receiveShadow = true; m.castShadow = (H.theme==='gorge'||H.theme==='canyon'); group.add(m);
   // big apron beyond the terrain
-  if(!H.sea){ const ap = new THREE.Mesh(new THREE.RingGeometry(Math.max(x1-x0, z1-z0)*0.45, 2600, 48, 1), toon(REAL ? '#7a8a3e' : '#93a84a')); ap.rotation.x = -Math.PI/2; ap.position.set((x0+x1)/2, H.base - 1.2, (z0+z1)/2); group.add(ap); }
+  if(!H.sea){ const ap = new THREE.Mesh(new THREE.RingGeometry(Math.max(x1-x0, z1-z0)*0.45, 2600, 48, 1), toon(REAL ? '#6a9646' : '#86b85a')); ap.rotation.x = -Math.PI/2; ap.position.set((x0+x1)/2, H.base - 1.2, (z0+z1)/2); group.add(ap); }
   if(H.water != null){
     const wg = H.sea ? new THREE.PlaneGeometry(5200, 5200) : new THREE.PlaneGeometry(x1-x0, z1-z0);
     const wm = new THREE.Mesh(wg, H.sea ? seaMat : pondMat); wm.rotation.x = -Math.PI/2; wm.position.set(H.sea ? 0 : (x0+x1)/2, H.water, H.sea ? -80 : (z0+z1)/2); group.add(wm);
@@ -1214,7 +1214,7 @@ function buildHole(i){
     const fgeo = new THREE.IcosahedronGeometry(0.09, 0); fgeo.translate(0, 0.14, 0);
     const NF = 500, flowers = new THREE.InstancedMesh(fgeo, new THREE.MeshBasicMaterial({color:'#ffffff'}), NF);
     const d = new THREE.Object3D(), fc = new THREE.Color(); let nt = 0, nf = 0;
-    const gcol = REAL ? (H.theme==='forest' ? ['#3b5a26','#47672c','#536f33'] : H.theme==='canyon' ? ['#8f8a4f','#7d8545','#9c915c'] : ['#7a8a3a','#6f8034','#869442']) : H.theme==='forest' ? ['#3f6e2c','#4d7d34','#5b8a3a'] : H.theme==='canyon' ? ['#a9a35a','#8f9a4d','#b8a96a'] : ['#4e9a35','#5aa63c','#448c2e'];
+    const gcol = REAL ? (H.theme==='forest' ? ['#3b5a26','#47672c','#536f33'] : H.theme==='canyon' ? ['#8f8a4f','#7d8545','#9c915c'] : ['#5c8a3e','#679646','#73a04e']) : H.theme==='forest' ? ['#3f6e2c','#4d7d34','#5b8a3a'] : H.theme==='canyon' ? ['#a9a35a','#8f9a4d','#b8a96a'] : ['#4e9a35','#5aa63c','#448c2e'];
     const flowery = ['meadow','pond','hill','sea','downs'].includes(H.theme);
     for(let k=0;k<(REAL ? 40000 : 20000) && (nt<NT || nf<NF);k++){
       const x = W.bounds.minX - 20 + r()*(W.bounds.maxX-W.bounds.minX+40), z = W.bounds.minZ - 25 + r()*(W.bounds.maxZ-W.bounds.minZ+45);
@@ -1294,7 +1294,7 @@ function drawMapStatic(){
   const s = Math.min((Wd-2*pad)/(b.maxX-b.minX), (Hd-2*pad)/(b.maxZ-b.minZ)), cx = (b.minX+b.maxX)/2, cz = (b.minZ+b.maxZ)/2;
   mapTf = {s, d, f:(x,z)=>[Wd/2 + (x-cx)*s, Hd/2 + (z-cz)*s]};
   const g = mapStatic.getContext('2d'), img = g.createImageData(Wd, Hd), col = new THREE.Color();
-  const MC = {fair:'#245e1e', green:'#4aa834', grass:'#8a9a48', out:'#8a9a48', forest:'#4d5e2a', stone:'#7f925c', sand:'#ecd9a4', concrete:'#c8c5bd', rock:'#a07750', canyonfloor:'#d9b98a', water:'#3fa4e8', gorge:'#3a3029'};
+  const MC = {fair:'#245e1e', green:'#4aa834', grass:'#78a650', out:'#78a650', forest:'#4e6e34', stone:'#7f925c', sand:'#ecd9a4', concrete:'#c8c5bd', rock:'#a07750', canyonfloor:'#d9b98a', water:'#3fa4e8', gorge:'#3a3029'};
   for(let py=0; py<Hd; py+=1) for(let px=0; px<Wd; px+=1){
     const x = cx + (px - Wd/2)/s, z = cz + (py - Hd/2)/s, t = W.T(x, z);
     col.set(MC[t.type] || MC.grass); const k = (py*Wd + px)*4;
