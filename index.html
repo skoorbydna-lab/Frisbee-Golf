@@ -974,7 +974,7 @@ let W = null;            // physics world for the current hole
 let course = null;       // {group, tee, sock}
 function groundAt(x, z){ return W ? W.T(x, z).h : 0; }
 
-const TCOL = REAL ? {fair:'#245a1c', green:'#5fd23a', grass:'#7f8f40', out:'#7f8f40', forest:'#4d5e2a', stone:'#8a9264', sand:'#d8c79a', concrete:'#a9a69f', rock:'#a97f58', canyonfloor:'#c9a97c', water:'#5f7a52', gorge:'#6e655a'} : {fair:'#327a25', green:'#78ec4c', grass:'#9aae4c', out:'#9aae4c', forest:'#5d7a34', stone:'#94a26c', sand:'#ecd9a4', concrete:'#bdbab2',
+const TCOL = REAL ? {fair:'#245a1c', green:'#3f8c2c', grass:'#7f8f40', out:'#7f8f40', forest:'#4d5e2a', stone:'#8a9264', sand:'#d8c79a', concrete:'#a9a69f', rock:'#a97f58', canyonfloor:'#c9a97c', water:'#5f7a52', gorge:'#6e655a'} : {fair:'#327a25', green:'#4fae36', grass:'#9aae4c', out:'#9aae4c', forest:'#5d7a34', stone:'#94a26c', sand:'#ecd9a4', concrete:'#bdbab2',
               rock:'#bb8a5d', canyonfloor:'#dcbc8b', water:'#6f8a62', gorge:'#7b6f62'};
 function buildTerrain(group){
   const H = W.H, b = W.bounds, margin = H.sea ? 80 : 230;
@@ -1251,12 +1251,12 @@ function buildGreen(group, B){
     for(let j=0;j<=SEG;j++){
       const a = j/SEG*Math.PI*2, x = B.x + Math.cos(a)*r, z = B.z + Math.sin(a)*r;
       pos.push(x, W.T(x, z).h + 0.035, z); uv.push(x/3.2, z/3.2);
-      c.set(TCOL.green).multiplyScalar(Math.floor(r/2.5) % 2 ? 0.9 : 1.04);                       // mowing rings
+      c.set(TCOL.green).multiplyScalar(Math.floor(r/2.5) % 2 ? 0.94 : 1.03);                       // mowing rings
       c.lerp(edge, C.smooth(10.0, R, r));                                                         // soft round edge into the collar
       if(REAL) c.convertSRGBToLinear(); col.push(c.r, c.g, c.b);
     }
   }
-  for(let i=0;i<RINGS;i++) for(let j=0;j<SEG;j++){ const a = i*(SEG+1)+j, b = a+SEG+1; idx.push(a, b, a+1, b, b+1, a+1); }
+  for(let i=0;i<RINGS;i++) for(let j=0;j<SEG;j++){ const a = i*(SEG+1)+j, b = a+SEG+1; idx.push(a, a+1, b, b, a+1, b+1); }   // wound to face upwards
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx); g.computeVertexNormals();
@@ -1294,7 +1294,7 @@ function drawMapStatic(){
   const s = Math.min((Wd-2*pad)/(b.maxX-b.minX), (Hd-2*pad)/(b.maxZ-b.minZ)), cx = (b.minX+b.maxX)/2, cz = (b.minZ+b.maxZ)/2;
   mapTf = {s, d, f:(x,z)=>[Wd/2 + (x-cx)*s, Hd/2 + (z-cz)*s]};
   const g = mapStatic.getContext('2d'), img = g.createImageData(Wd, Hd), col = new THREE.Color();
-  const MC = {fair:'#245e1e', green:'#7cf04e', grass:'#8a9a48', out:'#8a9a48', forest:'#4d5e2a', stone:'#7f925c', sand:'#ecd9a4', concrete:'#c8c5bd', rock:'#a07750', canyonfloor:'#d9b98a', water:'#3fa4e8', gorge:'#3a3029'};
+  const MC = {fair:'#245e1e', green:'#4aa834', grass:'#8a9a48', out:'#8a9a48', forest:'#4d5e2a', stone:'#7f925c', sand:'#ecd9a4', concrete:'#c8c5bd', rock:'#a07750', canyonfloor:'#d9b98a', water:'#3fa4e8', gorge:'#3a3029'};
   for(let py=0; py<Hd; py+=1) for(let px=0; px<Wd; px+=1){
     const x = cx + (px - Wd/2)/s, z = cz + (py - Hd/2)/s, t = W.T(x, z);
     col.set(MC[t.type] || MC.grass); const k = (py*Wd + px)*4;
