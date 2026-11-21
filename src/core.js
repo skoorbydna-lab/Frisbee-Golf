@@ -26,7 +26,7 @@ const DISCS = {
 };
 
 // ---------- the nine holes ----------
-const HOLES = [
+const OLD_HOLES = [
   {name:'Meadow Rise', par:3, theme:'meadow', diff:0.0, seed:11,
    path:[[0,0],[1,-40],[5,-82]], fw:22, base:0.5, hills:4.5,
    features:[{k:'hill',x:-32,z:-55,r:30,h:7},{k:'hill',x:34,z:-28,r:26,h:6},{k:'hill',x:2,z:-58,r:16,h:3.5},{k:'hill',x:-10,z:-118,r:40,h:9}],
@@ -66,6 +66,55 @@ const HOLES = [
    islands:[{x:0,z:3,r:18,h:1.8},{x:-14,z:-68,r:21,h:2.6},{x:26,z:-58,r:8,h:1.0},{x:6,z:-152,r:15,h:1.8},{x:-42,z:-118,r:9,h:1.2},{x:5,z:-103,r:5.5,h:1.2,small:true}],
    lighthouse:{x:-22,z:-75}, palms:true, wind:[-5,2]}
 ];
+const NEW_HOLES = [
+  // ---- open / hilly ----
+  {name:'Windy Ridge', par:3, theme:'downs', diff:0.35, seed:121,
+   path:[[0,0],[5,-50],[-2,-104]], fw:22, base:2, hills:4,
+   features:[{k:'hill',x:-30,z:-52,r:26,h:7},{k:'hill',x:-8,z:-55,r:22,h:5.5},{k:'hill',x:14,z:-52,r:22,h:6},{k:'hill',x:36,z:-56,r:24,h:7},
+             {k:'hill',x:-2,z:-104,r:14,h:-2},{k:'hill',x:34,z:-10,r:26,h:6},{k:'hill',x:-36,z:-120,r:30,h:7}],
+   trees:{count:100, clear:14, kinds:['oak','pine','birch']}, extraTrees:[[-12,-70],[14,-78]], rocks:8, wind:[5,-2.5]},
+  // ---- canyons ----
+  {name:'Red Rock Switchback', par:4, theme:'canyon', diff:0.55, seed:131,
+   path:[[0,0],[0,-36],[-30,-62],[-30,-96],[4,-122],[6,-152]], fw:18, base:0.3, hills:0.5, windFactor:0.7,
+   features:[{k:'canyon', path:[[0,40],[0,0],[0,-36],[-30,-62],[-30,-96],[4,-122],[6,-152],[6,-200]], w:26, h:22}],
+   trees:{count:60, clear:30, kinds:['pine']}, boulders:16, wind:[3,-2]},
+  {name:'The Narrows', par:4, theme:'canyon', diff:0.6, seed:137,
+   path:[[0,0],[6,-58],[-5,-112],[3,-166]], fw:13, base:0.3, hills:0.5, windFactor:0.6,
+   features:[{k:'canyon', path:[[0,40],[0,0],[6,-58],[-5,-112],[3,-166],[3,-210]], w:18, h:28}],
+   trees:{count:50, clear:24, kinds:['pine']}, boulders:22, wind:[-2,-4]},
+  {name:'Snake Canyon', par:5, theme:'canyon', diff:0.7, seed:139,
+   path:[[0,0],[20,-36],[-14,-72],[18,-108],[-16,-144],[12,-180],[0,-214]], fw:16, base:0.3, hills:0.5, windFactor:0.7,
+   features:[{k:'canyon', path:[[0,40],[0,0],[20,-36],[-14,-72],[18,-108],[-16,-144],[12,-180],[0,-214],[0,-260]], w:24, h:24}],
+   trees:{count:70, clear:30, kinds:['pine']}, boulders:20, wind:[2,3]},
+  {name:'Mesa Leap', par:3, theme:'canyon', diff:0.5, seed:149,
+   path:[[0,0],[-4,-50],[3,-100]], fw:18, base:0.3, hills:0.5, windFactor:0.8,
+   features:[{k:'canyon', path:[[0,40],[0,0],[-4,-50],[3,-100],[3,-150]], w:30, h:18},
+             {k:'chasm', path:[[-80,-44],[-10,-50],[10,-47],[80,-52]], w:14, depth:22}],
+   trees:{count:40, clear:30, kinds:['pine']}, boulders:12, wind:[-3,2]},
+  // ---- islands ----
+  {name:'Stepping Stones', par:4, theme:'sea', diff:0.6, seed:151, sea:true, water:0,
+   path:[[0,0],[9,-42],[-6,-78],[10,-110],[0,-142]], fw:0,
+   islands:[{x:0,z:3,r:17,h:1.8},{x:9,z:-42,r:10.5,h:1.3},{x:-6,z:-78,r:11,h:1.3},{x:10,z:-110,r:10,h:1.3},{x:0,z:-142,r:14,h:1.6},{x:-34,z:-60,r:9,h:1.2},{x:2,z:-60,r:5,h:1.0,small:true}],
+   palms:true, wind:[3,2]},
+  {name:'Lagoon Hop', par:3, theme:'sea', diff:0.55, seed:157, sea:true, water:0,
+   path:[[0,0],[-10,-74]], fw:0,
+   islands:[{x:0,z:3,r:17,h:1.8},{x:-10,z:-74,r:8.5,h:1.3},{x:22,z:-50,r:10,h:1.4},{x:-36,z:-30,r:7,h:1.0},{x:12,z:-100,r:6,h:1.0}],
+   palms:true, wind:[-3,-2]},
+  {name:'Coral Chain', par:5, theme:'sea', diff:0.7, seed:163, sea:true, water:0,
+   path:[[0,0],[-12,-55],[10,-100],[-8,-145],[14,-188],[0,-232]], fw:0,
+   islands:[{x:0,z:3,r:17,h:1.8},{x:-12,z:-55,r:12,h:1.4},{x:10,z:-100,r:11,h:1.3},{x:-8,z:-145,r:10,h:1.3},{x:14,z:-188,r:11.5,h:1.4},{x:0,z:-232,r:14,h:1.6},{x:2,z:-122,r:5,h:1.0,small:true},
+            {x:34,z:-140,r:8,h:1.1},{x:-40,z:-110,r:7,h:1.0},{x:-32,z:-205,r:9,h:1.2}],
+   palms:true, wind:[4,-3]},
+  {name:'Lighthouse Finale', par:4, theme:'sea', diff:0.65, seed:167, sea:true, water:0,
+   path:[[0,0],[18,-60],[-10,-115],[6,-168]], fw:0,
+   islands:[{x:0,z:3,r:17,h:1.8},{x:18,z:-60,r:15,h:2.4},{x:-10,z:-115,r:12,h:1.6},{x:6,z:-168,r:14,h:1.8},{x:5,z:-104,r:5,h:1.1,small:true},{x:-40,z:-70,r:8,h:1.0}],
+   lighthouse:{x:28,z:-66}, palms:true, wind:[-4,-3]}
+];
+const byName = n => OLD_HOLES.concat(NEW_HOLES).find(h=>h.name===n);
+// 1–9 front nine, 10–18 back nine: each nine runs open → canyon → island
+const HOLES = ['Meadow Rise','Mill Pond','Rolling Downs','Stone Gorge','Canyon Run','Red Rock Switchback','Island Green','Stepping Stones','Archipelago',
+               'Hilltop Drop','Darkwood','Windy Ridge','The Narrows','Snake Canyon','Mesa Leap','Lagoon Hop','Coral Chain','Lighthouse Finale'].map(byName);
+HOLES.forEach((H,i)=>{ H.num = i + 1; H.group = H.theme==='sea' ? 'island' : (H.theme==='canyon' || H.theme==='gorge') ? 'canyon' : 'open'; });
 HOLES.forEach(H=>{ H.basket = H.path[H.path.length-1]; if(H.windFactor==null) H.windFactor = 1; });
 // practice range: wide flat field, target baskets at set distances, no out of bounds
 const RANGE = {name:'Driving Range', par:0, theme:'range', diff:0, seed:5, range:true,
@@ -398,17 +447,19 @@ function stepFlight(w, f, D, dt){
     const hs = Math.hypot(v.x, v.z), vy = -v.y;
     const gty = su.on ? 'hard' : w.T(p.x, p.z).type;
     const soft = gty==='sand' || gty==='forest';
+    const hard = gty==='fair' || gty==='rock' || gty==='stone' || gty==='canyonfloor' || gty==='concrete' || gty==='hard';
+    const grip = soft ? 0.4 : hard ? 1 : gty==='green' ? 0.75 : 0.6;    // longer grass grabs the disc; greens hold it
     const bank = f.relT*0.45 + (f.lat||0)*0.04;
     // 1) skip: a fast, shallow landing hops off the ground
-    if(!f.hit && !soft && (f.bounces||0) < 2 && hs > 7 && vy > 1.2 && vy < hs*0.6){
+    if(!f.hit && hard && (f.bounces||0) < 2 && hs > 7 && vy > 1.2 && vy < hs*0.6){
       f.bounces = (f.bounces||0) + 1; v.y = vy*0.28; v.x *= 0.72; v.z *= 0.72; p.y = su.s + 0.05; ev(w,'land'); return null;
     }
     // 2) roller: lands tilted on its edge and rolls away, curving towards the side it leans
-    if(!f.hit && !soft && bank > 0.32 && hs > 7){ f.edge = 1; f.rolled = true; v.x *= 0.62; v.z *= 0.62; }
+    if(!f.hit && !soft && bank > 0.32 && hs > 7){ f.edge = 1; f.rolled = true; v.x *= 0.62*grip; v.z *= 0.62*grip; }
     // hyzer landing: the low edge digs in, it skids short and kicks left
     else if(!f.hit && bank < -0.32){ f.hyzerKick = true; const k = D.skid*0.8, a = -0.35, c = Math.cos(a), sn = Math.sin(a), vx = v.x*k, vz = v.z*k; v.x = vx*c - vz*sn; v.z = vz*c + vx*sn; f.edge = 0; f.wob = 0.6; }
     // 3) flat landing: slides and spins to a stop
-    else { const k = f.hit ? 0.15 : soft ? D.skid*0.4 : D.skid*1.25; v.x *= k; v.z *= k; f.edge = 0; }
+    else { const k = f.hit ? 0.15 : D.skid*1.25*grip; v.x *= k; v.z *= k; f.edge = 0; }
     v.y = 0; if(!(f.wob > 0)) f.wob = 0; f.bank = bank;
     ev(w,'land'); f.on = su.on; return 'land';
   }
@@ -471,9 +522,9 @@ function cpuScore(skill, H, r, windSpeed){
   const s = Math.round(H.par + mu + gauss(r)*0.75);
   return Math.max(2, Math.min(H.par + 4, s));
 }
-function holeWinds(tier, seed){
+function holeWinds(tier, seed, holes){
   const r = rng(seed*31 + 7);
-  return HOLES.map(H=>{
+  return (holes || HOLES).map(H=>{
     if(tier < 0) return {x:H.wind[0], z:H.wind[1]};
     const W = TOURS[tier].wind; const sp = W[0] + r()*(W[1]-W[0]); const a = r()*Math.PI*2;
     return {x:Math.sin(a)*sp, z:Math.cos(a)*sp};
