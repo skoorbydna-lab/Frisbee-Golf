@@ -410,18 +410,21 @@ function stepRoll(w, f, dt){
   let gx = 0, gz = 0;
   if(!su.on){ const e = 0.6; gx = (w.T(p.x+e,p.z).h - w.T(p.x-e,p.z).h)/(2*e); gz = (w.T(p.x,p.z+e).h - w.T(p.x,p.z-e).h)/(2*e); }
   const slope = Math.hypot(gx, gz);
-  const gs = f.edge ? 0.8 : 0.5;
-  if(slope > 0.12 || f.edge){ v.x -= G*gs*gx*dt; v.z -= G*gs*gz*dt; }
+  // a disc rolling on its edge feels the slope fully; a flat disc grips the grass and only
+  // slides on steep ground (friction holds it on anything gentler than about 1 in 3)
+  if(f.edge){ v.x -= G*0.8*gx*dt; v.z -= G*0.8*gz*dt; }
+  else if(slope > 0.33){ const k = G*0.5*(slope - 0.33)/slope; v.x -= k*gx*dt; v.z -= k*gz*dt; }
   let sp = Math.hypot(v.x, v.z);
-  if(f.wob > 0) f.wob = Math.max(0, f.wob - dt*0.8);
-  if((sp < 0.08 && slope < 0.35 && !f.edge && f.wob < 0.25) || f.rollT > 12) return 'rest';
+  if(f.wob > 0) f.wob = Math.max(0, f.wob - dt*1.4);
+  if(!f.edge && f.wob < 0.25 && (sp < 0.25 || f.rollT > 3.5)) return 'rest';
+  if(f.rollT > 7) return 'rest';
   if(f.edge){
     // rolling on its edge: low friction, the turn tightens as it slows, then it falls over
     const om = f.edge*(0.15 + 2.4/(sp + 1.5)), a = om*dt, c = Math.cos(a), s = Math.sin(a);
     const vx = v.x, vz = v.z; v.x = vx*c - vz*s; v.z = vz*c + vx*s;
     const dec = Math.min(sp, 2.6*dt); if(sp > 0){ v.x -= v.x/sp*dec; v.z -= v.z/sp*dec; }
     f.spin += dt*sp/0.106;
-    if(sp < 1.4){ f.edge = 0; f.wob = 1; v.x *= 0.3; v.z *= 0.3; ev(w,'land'); }
+    if(sp < 1.4 || f.rollT > 5){ f.edge = 0; f.wob = 1; v.x *= 0.3; v.z *= 0.3; ev(w,'land'); }
   } else {
     const dec = Math.min(sp, 4.5*dt); if(sp > 0){ v.x -= v.x/sp*dec; v.z -= v.z/sp*dec; }
   }

@@ -98,6 +98,10 @@
   <button class="btn" id="backBtn" style="pointer-events:auto;margin:0">↩ Back to my disc</button>
 </div>
 <div id="waitBar" class="pill hidden" style="position:fixed;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom));font-size:15px;text-align:center;pointer-events:none"></div>
+<div id="skipBar" class="hidden" style="position:fixed;left:0;right:0;bottom:calc(16px + env(safe-area-inset-bottom));display:flex;gap:8px;justify-content:center;pointer-events:none">
+  <button class="btn" id="skipBtn" style="margin:0;pointer-events:auto">⏭ Skip to where it lands</button>
+  <button class="btn alt" id="autoSkipBtn" style="margin:0;pointer-events:auto;font-size:14px">Auto-skip: Off</button>
+</div>
 <div id="fade"></div>
 <div class="pill hidden" id="loading">Building course…</div>
 
@@ -1093,7 +1097,7 @@ function handleEvent(e){
   if(OB_MSG[e]) return outOfBounds(e);
 }
 function toRest(){
-  state = 'rest'; restTimer = 1.5;
+  state = 'rest'; restTimer = 1.0;
   lastThrowDist = Math.hypot(flying.pos.x - lastLie.x, flying.pos.z - lastLie.z);
   const d = distToBasket(flying.pos);
   flash(`${lastThrowDist.toFixed(0)} m throw<br><span style="font-size:20px">${d.toFixed(d<10?1:0)} m to go</span>`, 1.5);
@@ -1181,7 +1185,7 @@ $('nextBtn').addEventListener('click', ()=>{
   if(mode==='online'){ if(!net.host) return; netSend({t:'hole', i:holeIdx + 1}); }
   if(holeIdx === C.HOLES.length - 1) finishRound(); else startHole(holeIdx + 1);
 });
-function toMenu(){ netClose(); $('waitBar').classList.add('hidden'); $('scoutBar').classList.add('hidden'); $('passScreen').classList.add('hidden'); while(others.children.length) others.remove(others.children[0]); state = 'menu'; $('top').classList.add('hidden'); $('bottom').classList.add('hidden'); $('holeScreen').classList.add('hidden'); $('pauseScreen').classList.add('hidden'); renderMenu(); $('menuScreen').classList.remove('hidden'); for(const k in held) held[k].visible = false; }
+function toMenu(){ netClose(); $('skipBar').classList.add('hidden'); $('waitBar').classList.add('hidden'); $('scoutBar').classList.add('hidden'); $('passScreen').classList.add('hidden'); while(others.children.length) others.remove(others.children[0]); state = 'menu'; $('top').classList.add('hidden'); $('bottom').classList.add('hidden'); $('holeScreen').classList.add('hidden'); $('pauseScreen').classList.add('hidden'); renderMenu(); $('menuScreen').classList.remove('hidden'); for(const k in held) held[k].visible = false; }
 $('menuBtn').addEventListener('click', ()=>{ exitScout(); $('pauseScreen').classList.remove('hidden'); });
 $('resumeBtn').addEventListener('click', ()=>$('pauseScreen').classList.add('hidden'));
 $('quitBtn').addEventListener('click', toMenu);
@@ -1408,6 +1412,8 @@ function processQueue(){
   chase.pos.set(lie.x, lie.y + eyeH, lie.z); chase.dir = null;
   replay = {m, t:0, k:0};
   trailPts = []; state = 'replay'; sfx.whoosh();
+  if(settings.autoSkip) return skipReplay();
+  $('skipBar').classList.remove('hidden');
 }
 function stepReplay(dt){
   if(!replay) return;
@@ -1436,17 +1442,35 @@ function applyThrow(m){
 }
 // the host moved on: apply anything still being watched or waiting so scores never get lost
 function flushRemote(){
-  if(replay){ applyThrow(replay.m); replay = null; if(state==='replay') state = 'rpause'; }
+  if(replay){ applyThrow(replay.m); replay = null; $('skipBar').classList.add('hidden'); if(state==='replay') state = 'rpause'; }
   netQueue.filter(m=>m.hole <= holeIdx).forEach(applyThrow);
   netQueue = netQueue.filter(m=>m.hole > holeIdx);
 }
-function finishReplay(){
+// jump straight to where the opponent's disc ended up
+function skipReplay(){
+  if(!replay || state!=='replay') return;
+  const P = replay.m.path, e = P[P.length-1];
+  if(e){
+    replay.t = e[0]; replay.k = P.length - 1; stepReplay(0);
+    trailPts = P.filter((q,i)=>i%3===0).map(q=>[q[1],q[2],q[3]]); updateTrail();
+    const b = P[Math.max(0, P.length-12)], dx = e[1]-b[1], dz = e[3]-b[3], L = Math.hypot(dx,dz) || 1;
+    chase.pos.set(e[1] - dx/L*5, e[2] + 2.2, e[3] - dz/L*5); chase.look.set(e[1], e[2], e[3]); chase.dir = [dx/L, dz/L];
+    camera.position.copy(chase.pos); camera.lookAt(chase.look);
+  }
+  finishReplay(true);
+}
+$('skipBtn').addEventListener('click', skipReplay);
+function renderAutoSkip(){ $('autoSkipBtn').textContent = 'Auto-skip: ' + (settings.autoSkip ? 'On' : 'Off'); $('autoSkipBtn').classList.toggle('on', !!settings.autoSkip); }
+$('autoSkipBtn').addEventListener('click', ()=>{ settings.autoSkip = !settings.autoSkip; try{ localStorage.setItem(SET_KEY, JSON.stringify(settings)); }catch(e){} renderAutoSkip(); if(settings.autoSkip) skipReplay(); });
+renderAutoSkip();
+function finishReplay(skipped){
+  $('skipBar').classList.add('hidden');
   const m = replay.m; replay = null; const p = applyThrow(m);
   if(m.kind==='holed'){ sfx.chains(); flying.vel.x = flying.vel.y = flying.vel.z = 0; }
   else if(m.kind==='ob') sfx.splash();
   flash(`${esc(p.name)}: ${m.msg}`, 1.8);
   state = m.kind==='holed' ? 'holed' : 'rpause';    // pause on the result
-  const hk = holeIdx; setTimeout(()=>{ if(holeIdx===hk && state!=='wait' && state!=='aim') continueAfterRemote(); }, m.kind==='holed' ? 1700 : 1400);
+  const hk = holeIdx; setTimeout(()=>{ if(holeIdx===hk && state!=='wait' && state!=='aim') continueAfterRemote(); }, skipped ? (m.kind==='holed' ? 1300 : 1000) : (m.kind==='holed' ? 1700 : 1400));
 }
 function continueAfterRemote(){
   if(mode!=='online' || state==='menu') return;
