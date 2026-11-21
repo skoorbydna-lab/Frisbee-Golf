@@ -974,7 +974,7 @@ let W = null;            // physics world for the current hole
 let course = null;       // {group, tee, sock}
 function groundAt(x, z){ return W ? W.T(x, z).h : 0; }
 
-const TCOL = REAL ? {fair:'#2f6a24', green:'#d2f77e', grass:'#7f8f40', out:'#7f8f40', forest:'#4d5e2a', stone:'#8a9264', sand:'#d8c79a', concrete:'#a9a69f', rock:'#a97f58', canyonfloor:'#c9a97c', water:'#5f7a52', gorge:'#6e655a'} : {fair:'#3f8f2e', green:'#e2ff94', grass:'#9aae4c', out:'#9aae4c', forest:'#5d7a34', stone:'#94a26c', sand:'#ecd9a4', concrete:'#bdbab2',
+const TCOL = REAL ? {fair:'#245a1c', green:'#5fd23a', grass:'#7f8f40', out:'#7f8f40', forest:'#4d5e2a', stone:'#8a9264', sand:'#d8c79a', concrete:'#a9a69f', rock:'#a97f58', canyonfloor:'#c9a97c', water:'#5f7a52', gorge:'#6e655a'} : {fair:'#327a25', green:'#78ec4c', grass:'#9aae4c', out:'#9aae4c', forest:'#5d7a34', stone:'#94a26c', sand:'#ecd9a4', concrete:'#bdbab2',
               rock:'#bb8a5d', canyonfloor:'#dcbc8b', water:'#6f8a62', gorge:'#7b6f62'};
 function buildTerrain(group){
   const H = W.H, b = W.bounds, margin = H.sea ? 80 : 230;
@@ -998,9 +998,13 @@ function buildTerrain(group){
     else c.set(TCOL[t] || TCOL.grass);
     if(t==='forest' && C.fbm(x*0.15, z*0.15) > 0.58) c.lerp(brown, 0.55);
     let dbk = 1e9; for(const b of W.baskets){ const e = Math.hypot(x - b.x, z - b.z); if(e < dbk) dbk = e; }
-    if(t==='green'){ c.multiplyScalar(Math.floor(dbk/2.5) % 2 ? 0.94 : 1.03); }                                        // mowing rings
-    else if(dbk < 12 && t!=='water' && t!=='sand' && t!=='rock' && t!=='gorge') c.set(REAL ? '#22501a' : '#2f7222');   // dark collar
-    else if(t==='fair'){ const st = Math.sin(x*0.55 + z*0.12) > 0 ? 1.05 : 0.95; c.multiplyScalar(st); }                // fairway mowing stripes
+    const grassy = t==='fair' || t==='grass' || t==='out' || t==='green' || t==='stone' || t==='forest' || t==='canyonfloor';
+    if(grassy && H.fw && !H.sea){                                    // fairway edge fades smoothly into the rough
+      const dp = C.distToPath(x, z, H.path), k = 1 - C.smooth(H.fw/2 - 1.5, H.fw/2 + 1.5, dp);
+      if(t==='fair' || t==='green' || (k > 0 && t!=='forest' && t!=='stone')) c.set(TCOL.grass).lerp(_C.set(TCOL.fair), k);
+      if(k > 0.5) c.multiplyScalar(Math.sin(x*0.55 + z*0.12) > 0 ? 1.06 : 0.95);   // mowing stripes
+    }
+    if(grassy && dbk < 14){ const k = 1 - C.smooth(11, 13.5, dbk); c.lerp(_C.set(REAL ? '#1c4a16' : '#286a1e'), k); }   // dark collar round the green
     if(!H.sea && (slope > 0.85 || t==='rock' || t==='gorge') && t!=='concrete'){
       c.copy(rockC); if(t==='gorge' && h < -18) c.multiplyScalar(0.8);
       c.multiplyScalar(0.84 + 0.16*((Math.floor(h*0.7) % 2 + 2) % 2)); // strata bands
@@ -1229,7 +1233,7 @@ function buildHole(i){
   const fd = H.path[1]; tee.rotation.y = Math.atan2(-fd[0], -fd[1]); group.add(tee);
   const sock = makeWindsock(); sock.position.set(2.8, W.T(2.8, 1.5).h, 1.5); group.add(sock);
   if(H.room){ sock.position.set(R_SOCK.x, 0, R_SOCK.z); }
-  for(const b of W.baskets){ const bk = makeBasket(); bk.position.set(b.x, b.y, b.z); group.add(bk); }
+  for(const b of W.baskets){ const bk = makeBasket(); bk.position.set(b.x, b.y, b.z); group.add(bk); buildGreen(group, b); }
   if(isRange) buildRangeMarks(group);
   marker.position.set(W.basket.x, W.basket.y + 2.4, W.basket.z);
   scene.fog.near = H.room ? 120 : FOG_NEAR;
@@ -1237,6 +1241,27 @@ function buildHole(i){
   drawMapStatic();
 }
 const R_SOCK = {x:3, z:2.5};
+const greenTex = (()=>{ const t = detailTex.clone(); t.needsUpdate = true; t.repeat.set(1, 1); return t; })();
+const greenMat = REAL ? std({vertexColors:true, roughness:0.9, map:greenTex, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2})
+                      : new THREE.MeshToonMaterial({vertexColors:true, gradientMap:grad, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2});
+function buildGreen(group, B){
+  const R = 10.6, RINGS = 26, SEG = 128, pos = [], col = [], uv = [], idx = [], c = new THREE.Color(), edge = new THREE.Color(REAL ? '#1c4a16' : '#286a1e');
+  for(let i=0;i<=RINGS;i++){
+    const r = R*i/RINGS;
+    for(let j=0;j<=SEG;j++){
+      const a = j/SEG*Math.PI*2, x = B.x + Math.cos(a)*r, z = B.z + Math.sin(a)*r;
+      pos.push(x, W.T(x, z).h + 0.035, z); uv.push(x/3.2, z/3.2);
+      c.set(TCOL.green).multiplyScalar(Math.floor(r/2.5) % 2 ? 0.9 : 1.04);                       // mowing rings
+      c.lerp(edge, C.smooth(10.0, R, r));                                                         // soft round edge into the collar
+      if(REAL) c.convertSRGBToLinear(); col.push(c.r, c.g, c.b);
+    }
+  }
+  for(let i=0;i<RINGS;i++) for(let j=0;j<SEG;j++){ const a = i*(SEG+1)+j, b = a+SEG+1; idx.push(a, b, a+1, b, b+1, a+1); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, greenMat); m.receiveShadow = true; m.renderOrder = 1; group.add(m);
+}
 function textSprite(txt, w, h, attenuate, col){
   const cv = document.createElement('canvas'); cv.width = 256; cv.height = 128; const g = cv.getContext('2d');
   g.font = '700 58px Fredoka, sans-serif'; g.textAlign = 'center'; g.lineJoin = 'round';
@@ -1269,7 +1294,7 @@ function drawMapStatic(){
   const s = Math.min((Wd-2*pad)/(b.maxX-b.minX), (Hd-2*pad)/(b.maxZ-b.minZ)), cx = (b.minX+b.maxX)/2, cz = (b.minZ+b.maxZ)/2;
   mapTf = {s, d, f:(x,z)=>[Wd/2 + (x-cx)*s, Hd/2 + (z-cz)*s]};
   const g = mapStatic.getContext('2d'), img = g.createImageData(Wd, Hd), col = new THREE.Color();
-  const MC = {fair:'#2f7a26', green:'#eaffa0', grass:'#8a9a48', out:'#8a9a48', forest:'#4d5e2a', stone:'#7f925c', sand:'#ecd9a4', concrete:'#c8c5bd', rock:'#a07750', canyonfloor:'#d9b98a', water:'#3fa4e8', gorge:'#3a3029'};
+  const MC = {fair:'#245e1e', green:'#7cf04e', grass:'#8a9a48', out:'#8a9a48', forest:'#4d5e2a', stone:'#7f925c', sand:'#ecd9a4', concrete:'#c8c5bd', rock:'#a07750', canyonfloor:'#d9b98a', water:'#3fa4e8', gorge:'#3a3029'};
   for(let py=0; py<Hd; py+=1) for(let px=0; px<Wd; px+=1){
     const x = cx + (px - Wd/2)/s, z = cz + (py - Hd/2)/s, t = W.T(x, z);
     col.set(MC[t.type] || MC.grass); const k = (py*Wd + px)*4;
