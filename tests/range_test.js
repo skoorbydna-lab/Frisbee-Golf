@@ -65,5 +65,5 @@ const D = device('Andy');
     if(n%3===2) console.log(' after', n+1, ':', D.els.capTxt.innerHTML.replace(/<[^>]+>/g,''), '|', D.els.holeMeta.textContent, '|', D.els.dist.innerHTML.replace(/<[^>]+>/g,''));
   }
   console.log('results:', D.els.ptTitle.textContent, '| shown', !D.els.puttScreen.classList.contains('hidden'), '|', D.els.ptBody.innerHTML.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').slice(0,300));
-  D.els.ptBack.fire('click'); console.log('back to range:', D.els.holeName.textContent, D.els.rPutt.textContent);
+  console.log('LONG', D.store['discgolf-records']); D.els.ptBack.fire('click'); console.log('back to range:', D.els.holeName.textContent, D.els.rPutt.textContent);
 })();

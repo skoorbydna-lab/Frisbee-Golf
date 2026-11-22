@@ -163,7 +163,7 @@
     <button class="tour" id="onlineBtn">🌐 Online play<small>2–4 players on their own phones. Host a game and share the code.</small></button>
     <button class="tour" id="localBtn">👥 Pass &amp; play<small>2–4 players on one phone. Furthest from the basket throws next.</small></button>
     <button class="tour" id="golferBtn">🧑 Your golfer<small>Change your golfer's look, name and build.</small></button>
-    <button class="tour" id="recordsBtn">📜 Course records<small>Best rounds on each course, front 9, back 9 and all 18.</small></button>
+    <button class="tour" id="recordsBtn">📜 Records<small>Best rounds on each course, longest drives and longest hole-outs.</small></button>
     <button class="tour" id="rangeBtn">🎯 Driving range<small>Unlimited throws at target baskets, with a breakdown of every flick.</small></button>
     <button class="tour" id="practiceBtn">Practice round<small>The round you picked above, no opponents, gentle preset winds.</small></button>
     <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div><div class="row" style="margin-top:6px"><button class="chip setS">Throw stats in rounds: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setW">Opponents' throws: watch</button></div>
@@ -184,8 +184,9 @@
 
 <div class="overlay hidden" id="recScreen">
   <div class="card">
-    <h2 style="margin:0">📜 Course records</h2>
+    <h2 style="margin:0">📜 Records</h2>
     <p id="recSport" style="margin:2px 0 8px;font-size:13px;opacity:.75"></p>
+    <div class="row" id="recKind" style="margin-bottom:6px"><button class="chip on" data-rk="rounds">🏁 Rounds</button><button class="chip" data-rk="drive">🚀 Longest drive</button><button class="chip" data-rk="holeout">🎯 Longest hole-out</button></div>
     <div class="row" id="recWho" style="margin-bottom:6px"><button class="chip on" data-rw="world">🌍 Everyone</button><button class="chip" data-rw="phone">📱 This phone</button></div>
     <div class="row" id="recCourse"></div>
     <div class="row" id="recLen" style="margin-top:6px"></div>
@@ -2795,11 +2796,11 @@ function handleEvent(e){
 function toRest(){
   showStats('lie');
   if(mode==='range'){ state = 'rest'; restTimer = 1.0; lastThrowDist = Math.hypot(flying.pos.x - lastLie.x, flying.pos.z - lastLie.z); outcome = range.from==='tee' ? 'tee' : 'lie'; range.n++;
-    if(range.putt){ const left = distToBasket(flying.pos); flash(`Missed · ${left.toFixed(1)} m away`, 1.3); puttResult(false); } else flash(`${lastThrowDist.toFixed(0)} m`, 1.3); return; }
+    if(range.putt){ const left = distToBasket(flying.pos); flash(`Missed · ${left.toFixed(1)} m away`, 1.3); puttResult(false); } else { const r = recordLong('drive', lastThrowDist, longWhere()); flash(`${lastThrowDist.toFixed(0)} m` + longNote('drive', r), r && (r.pb || r.rank===1) ? 2.2 : 1.3); } return; }
   state = 'rest'; restTimer = 1.0;
   lastThrowDist = Math.hypot(flying.pos.x - lastLie.x, flying.pos.z - lastLie.z);
-  const d = distToBasket(flying.pos);
-  flash(`${lastThrowDist.toFixed(0)} m throw<br><span style="font-size:20px">${d.toFixed(d<10?1:0)} m to go</span>`, 1.5);
+  const d = distToBasket(flying.pos), lr = recordLong('drive', lastThrowDist, longWhere());
+  flash(`${lastThrowDist.toFixed(0)} m throw<br><span style="font-size:20px">${d.toFixed(d<10?1:0)} m to go</span>` + longNote('drive', lr), lr && (lr.pb || lr.rank===1) ? 2.2 : 1.5);
   outcome = 'lie';
 }
 function outOfBounds(e){
@@ -2815,17 +2816,18 @@ const NAMES = {'-3':'Albatross!','-2':'Eagle!','-1':'Birdie!','0':'Par','1':'Bog
 function holed(){
   if(mode==='range'){
     state = 'rest'; restTimer = 1.8; if(GOLF) sfx.cup(); else sfx.chains(); showStats('chains'); range.n++;
-    const B = flying.inBasket || W.basket; flying.pos.x = B.x + 0.08; flying.pos.y = B.y + 0.6; flying.pos.z = B.z; flying.vel.x = flying.vel.y = flying.vel.z = 0;
+    const B = flying.inBasket || W.basket; { const hd = Math.hypot(B.x - lastLie.x, B.z - lastLie.z); recordLong('holeout', hd, longWhere()); recordLong('drive', hd, longWhere()); } flying.pos.x = B.x + 0.08; flying.pos.y = B.y + 0.6; flying.pos.z = B.z; flying.vel.x = flying.vel.y = flying.vel.z = 0;
     flash(`${GOLF ? 'In the hole! ⛳' : 'Chains! 🎯'}<br><span style="font-size:20px">${Math.hypot(B.x - lastLie.x, B.z - lastLie.z).toFixed(0)} m</span>`, 1.7); sfx.cheer(); outcome = 'tee'; puttResult(true); return;
   }
   state = 'holed'; if(GOLF) sfx.cup(); else sfx.chains();
   const HB = flying.inBasket || C.cupNearW(W, flying.pos);
+  const hoDist = Math.hypot(HB.x - lastLie.x, HB.z - lastLie.z), hoRec = recordLong('holeout', hoDist, longWhere()); recordLong('drive', hoDist, longWhere());
   flying.pos.x = HB.x + (GOLF ? 0 : 0.08); flying.pos.y = HB.y + (GOLF ? -0.1 : 0.6); flying.pos.z = HB.z; flying.vel.x = flying.vel.y = flying.vel.z = 0;
   showStats('chains');
   const diff = strokes - RH[holeIdx].par;
   you.scores[holeIdx] = strokes; you.done = true;
   const label = strokes===1 ? 'ACE!!' : (NAMES[diff] || `+${diff}`);
-  flash((multi() ? esc(you.name) + ': ' : '') + label, 1.6); if(diff < 0) setTimeout(()=>sfx.cheer(), 300);
+  flash((multi() ? esc(you.name) + ': ' : '') + label + (hoDist >= 8 ? `<br><span style="font-size:20px">from ${hoDist.toFixed(hoDist < 20 ? 1 : 0)} m</span>` : '') + longNote('holeout', hoRec), hoRec && (hoRec.pb || hoRec.rank===1) ? 2.2 : 1.6); if(diff < 0) setTimeout(()=>sfx.cheer(), 300);
   if(mode==='online' && cur===myIdx){ savePlayer(); $('msg').innerHTML = label; netSendThrow('holed'); }
   setTimeout(()=>{
     if(multi()){ savePlayer(); const n = nextPlayer(); if(n >= 0){ loadPlayer(n); showPass(false); return; } }
@@ -2887,7 +2889,7 @@ async function cloudFlush(){
   let q = cloudQueue(); if(!q.length) return;
   const db = await cloudInit(), left = [];
   for(const it of q){
-    try{ await db.collection(it.coll).add({n:it.n, total:it.total, par:it.par, holes:it.holes, how:it.how, t:firebase.firestore.FieldValue.serverTimestamp()}); }
+    try{ const doc = it.d != null ? {n:it.n, d:it.d, how:it.how} : {n:it.n, total:it.total, par:it.par, holes:it.holes, how:it.how}; doc.t = firebase.firestore.FieldValue.serverTimestamp(); await db.collection(it.coll).add(doc); }
     catch(e){ if(e && e.code==='permission-denied') continue; left.push(it); }   // rejected scores are dropped, network trouble waits
   }
   cloudSetQueue(left);
@@ -2905,6 +2907,10 @@ async function cloudPost(entries){       // returns [{e, rank, of}] once posted
     }catch(err){}
   }
   return out;
+}
+async function cloudTopLong(coll){
+  const db = await cloudInit(), snap = await db.collection(coll).orderBy('d', 'desc').limit(10).get();
+  return snap.docs.map(d=>({name:String(d.get('n') || 'Player'), d:Number(d.get('d')), how:String(d.get('how') || ''), when:(d.get('t') && d.get('t').toMillis) ? d.get('t').toMillis() : Date.now()}));
 }
 async function cloudTop(coll){
   const db = await cloudInit(), snap = await db.collection(coll).orderBy('total').limit(25).get();
@@ -2941,9 +2947,59 @@ function saveRecords(){
   }).catch(()=>{});
   return mine.map(e=>({e, rank:recs[k].indexOf(e) + 1})).filter(o=>o.rank > 0);
 }
-let recSel = {course:'classic', len:'front', who:'world'}, recReq = 0;
+let recSel = {course:'classic', len:'front', who:'world', kind:'rounds'}, recReq = 0;
+const recDate = t=>new Date(t).toLocaleDateString(undefined, {day:'numeric', month:'short', year:'2-digit'});
+// ---- longest drive / longest hole-out: every throw in rounds and on the range counts ----
+function longKey(kind){ return `${GOLF ? 'golf' : 'disc'}|${kind}`; }
+function recordLong(kind, dist, where){
+  if(!(dist > (kind==='drive' ? 10 : 2)) || (mode==='online' && cur!==myIdx)) return null;
+  const recs = loadRecs(), k = longKey(kind), board = recs[k] || [], name = humanName(you);
+  const pb = Math.max(0, ...board.filter(e=>e.name===name).map(e=>e.d));
+  const e = {name, d:Math.round(dist*10)/10, how:where, when:Date.now(), disc:gearName(discKey)};
+  board.push(e); board.sort((a,b)=>b.d - a.d || a.when - b.when); recs[k] = board.slice(0, 20);
+  try{ localStorage.setItem(REC_KEY, JSON.stringify(recs)); }catch(err){}
+  const rank = recs[k].indexOf(e) + 1;
+  if(dist > pb){       // personal best on this phone: share it
+    const coll = `fg_${GOLF ? 'golf' : 'disc'}_${kind}`;
+    cloudSetQueue(cloudQueue().concat([{coll, n:name, d:e.d, how:(where + ' · ' + e.disc).slice(0, 30)}]));
+    cloudFlush().catch(()=>{});
+  }
+  return {rank, pb:dist > pb};
+}
+// bring in longest range throws saved before these boards existed
+(function seedLong(){ try{
+  const recs = loadRecs(); let changed = false;
+  for(const [sp, key] of [['disc','discgolf-range'], ['golf','golf-range']]){
+    const sv = JSON.parse(localStorage.getItem(key) || 'null'); const L = sv && sv.longest; const k = `${sp}|drive`;
+    if(L && L.d > 10 && !(recs[k] || []).length){ recs[k] = [{name:(settings.golferName || localStorage.getItem('discgolf-olname') || 'You').slice(0,14), d:Math.round(L.d*10)/10, how:'Driving range', when:Date.now(), disc:L.disc || ''}]; changed = true;
+      cloudSetQueue(cloudQueue().concat([{coll:`fg_${sp}_drive`, n:recs[k][0].name, d:recs[k][0].d, how:'Driving range'}])); }
+  }
+  if(changed) localStorage.setItem(REC_KEY, JSON.stringify(recs));
+}catch(e){} })();
+function longWhere(){ return mode==='range' ? (range.putt ? 'Putting practice' : 'Driving range') : `${RH[holeIdx] ? RH[holeIdx].name : 'Course'}`; }
+function longNote(kind, r, dist){
+  if(!r) return '';
+  if(r.rank===1) return `<br><span style="font-size:18px;color:#ffd23f">🏆 Longest ${kind==='drive' ? 'drive' : 'hole-out'} on this phone!</span>`;
+  if(r.pb) return `<br><span style="font-size:18px;color:#ffd23f">⭐ Your longest ${kind==='drive' ? 'drive' : 'hole-out'}!</span>`;
+  return '';
+}
 function renderRecs(){
   const sport = GOLF ? 'golf' : 'disc', recs = loadRecs(), world = recSel.who==='world';
+  document.querySelectorAll('[data-rk]').forEach(b=>{ b.classList.toggle('on', b.dataset.rk===recSel.kind); b.onclick = ()=>{ recSel.kind = b.dataset.rk; renderRecs(); }; });
+  const long = recSel.kind !== 'rounds';
+  $('recCourse').classList.toggle('hidden', long); $('recLen').classList.toggle('hidden', long); $('recPar').classList.toggle('hidden', long);
+  if(long){
+    document.querySelectorAll('[data-rw]').forEach(b=>{ b.classList.toggle('on', b.dataset.rw===recSel.who); b.onclick = ()=>{ recSel.who = b.dataset.rw; renderRecs(); }; });
+    $('recSport').textContent = (GOLF ? '⛳ Golf' : '🥏 Disc golf') + (recSel.kind==='drive' ? ' · longest single throw, on the course or the range' : ' · longest throw straight into the ' + (GOLF ? 'hole' : 'basket'));
+    $('recFoot').textContent = world ? 'Each player\'s personal bests from every phone.' : 'Every long one on this phone, rounds and range.';
+    const draw = rows=>{ $('recList').innerHTML = rows.length ? rows.slice(0,10).map((e,i)=>`<tr${i===0 ? ' class="me"' : ''}><td>${i===0 ? '🏆' : i+1}</td><td>${esc(e.name)}<br><span style="font-size:11px;opacity:.7">${esc(e.how)}${e.disc && !String(e.how).includes(e.disc) ? ' · ' + esc(e.disc) : ''} · ${recDate(e.when)}</span></td><td class="rel">${e.d.toFixed(e.d < 20 ? 1 : 0)} m</td></tr>`).join('')
+      : `<tr><td>–</td><td>Nothing yet. ${recSel.kind==='drive' ? 'Let one rip on the range or the course.' : 'Hole out from distance to get on here.'}</td><td></td></tr>`; };
+    const myReq = ++recReq;
+    if(world){ $('recList').innerHTML = '<tr><td>…</td><td>Loading…</td><td></td></tr>';
+      cloudTopLong(`fg_${sport}_${recSel.kind}`).then(rows=>{ if(myReq===recReq) draw(rows); }).catch(()=>{ if(myReq===recReq) $('recList').innerHTML = '<tr><td>📡</td><td>Couldn\'t reach the leaderboard. Check your connection, or look at This phone.</td><td></td></tr>'; }); }
+    else draw(recs[longKey(recSel.kind)] || []);
+    return;
+  }
   let board = world ? null : (recs[recBoardKey(sport, recSel.course, recSel.len)] || []);
   document.querySelectorAll('[data-rw]').forEach(b=>{ b.classList.toggle('on', b.dataset.rw===recSel.who); b.onclick = ()=>{ recSel.who = b.dataset.rw; renderRecs(); }; });
   $('recFoot').textContent = world ? 'Everyone who has finished this round, on any phone. Shuffle and Quick 3 aren\'t recorded because their holes change.' : 'Finished rounds on this phone: practice, tournaments, pass & play and online.';
@@ -2963,12 +3019,12 @@ function renderRecs(){
   document.querySelectorAll('[data-rl]').forEach(b=>b.onclick = ()=>{ recSel.len = b.dataset.rl; renderRecs(); });
 }
 function drawRecList(board){
-  $('recList').innerHTML = board.length ? board.slice(0, 10).map((e,i)=>`<tr${i===0 ? ' class="me"' : ''}><td>${i===0 ? '🏆' : i+1}</td><td>${esc(e.name)}<br><span style="font-size:11px;opacity:.7">${esc(e.how)} · ${d(e.when)}</span></td><td class="rel">${relTxt(e.total - e.par)}</td><td>${e.total}</td></tr>`).join('')
+  $('recList').innerHTML = board.length ? board.slice(0, 10).map((e,i)=>`<tr${i===0 ? ' class="me"' : ''}><td>${i===0 ? '🏆' : i+1}</td><td>${esc(e.name)}<br><span style="font-size:11px;opacity:.7">${esc(e.how)} · ${recDate(e.when)}</span></td><td class="rel">${relTxt(e.total - e.par)}</td><td>${e.total}</td></tr>`).join('')
     : `<tr><td>–</td><td>No finished rounds yet. Play the ${courseLabel(recSel.course)} ${REC_LENS.find(x=>x[0]===recSel.len)[1]} to set the first record.</td><td></td><td></td></tr>`;
 }
 $('recordsBtn').addEventListener('click', ()=>{
   const c = settings.course, k = settings.round;
-  recSel = {course:REC_COURSES.includes(c) ? c : 'classic', len:['front','back','all'].includes(k) ? k : 'front'};
+  recSel = {course:REC_COURSES.includes(c) ? c : 'classic', len:['front','back','all'].includes(k) ? k : 'front', who:recSel.who || 'world', kind:recSel.kind || 'rounds'};
   renderRecs(); $('recScreen').classList.remove('hidden');
 });
 $('recClose').addEventListener('click', ()=>$('recScreen').classList.add('hidden'));
