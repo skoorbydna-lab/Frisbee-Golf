@@ -107,6 +107,7 @@
   <div class="row hidden" id="rangeRow">
     <button class="chip" id="rWind">Wind: calm</button>
     <button class="chip" id="rFrom">Throw from: tee</button>
+    <button class="chip" id="rPutt">🎯 Putting</button>
   </div>
   <div class="row hidden" id="clubRow">
     <button class="chip" data-club="driver">Driver<small>~160 m</small></button>
@@ -266,6 +267,14 @@
   </div>
 </div>
 
+<div class="overlay hidden" id="puttScreen">
+  <div class="card" style="max-width:380px">
+    <h2 id="ptTitle" style="margin:0 0 6px">Putting practice</h2>
+    <div id="ptBody" style="font-size:14.5px;line-height:1.45"></div>
+    <div id="ptDots" style="text-align:center;margin:8px 0;font-size:18px;letter-spacing:4px"></div>
+    <div style="display:flex;gap:8px"><button class="chip" id="ptBack">Back</button><button class="chip on" id="ptNext">Next</button></div>
+  </div>
+</div>
 <div class="overlay hidden" id="pauseScreen">
   <div class="card">
     <h2>Paused</h2>
@@ -2224,7 +2233,7 @@ function setClub(k){ discKey = k; document.querySelectorAll('[data-club]').forEa
 document.querySelectorAll('[data-club]').forEach(b=>b.addEventListener('click', ()=>{ setClub(b.dataset.club); renderSpin(); }));
 function setDisc(k){ if(GOLF) return setClub(C.CLUBS[k] ? k : 'driver'); discKey = k; document.querySelectorAll('[data-disc]').forEach(b=>b.classList.toggle('on', b.dataset.disc===k)); for(const j in held) held[j].visible = (j===k && (state==='aim' || state==='flick')); }
 document.querySelectorAll('[data-disc]').forEach(b=>b.addEventListener('click', ()=>setDisc(b.dataset.disc)));
-function targetOf(p){ if(mode!=='range') return W.basket; let best = W.baskets[0], bd = 1e9; for(const b of W.baskets){ const e = Math.hypot(p.x-b.x, p.z-b.z); if(e < bd){ bd = e; best = b; } } return best; }
+function targetOf(p){ if(mode!=='range') return W.basket; if(range.putt) return range.putt.B; let best = W.baskets[0], bd = 1e9; for(const b of W.baskets){ const e = Math.hypot(p.x-b.x, p.z-b.z); if(e < bd){ bd = e; best = b; } } return best; }
 function distToBasket(p){ const B = targetOf(p); return Math.hypot(p.x - B.x, p.z - B.z); }
 function faceBasket(){
   if(mode==='range' && Math.hypot(lie.x, lie.z) < 1){ yaw = 0; pitch = GOLF ? -0.12 : 0.04; eyeH = 1.7; return; }
@@ -2243,6 +2252,13 @@ function autoClub(){
 }
 function autoDisc(){ if(GOLF){ if(mode==='range') return setClub(C.CLUBS[discKey] ? discKey : 'driver'); return autoClub(); } if(mode==='range') return setDisc(discKey); const d = distToBasket(lie); setDisc(d < 22 ? 'putter' : d < 75 ? 'mid' : 'driver'); }
 function updateHUD(){
+  if(mode==='range' && range.putt){
+    const P = range.putt, made = P.made.reduce((a,b)=>a+b,0), done = P.i*3 + P.k;
+    $('holeName').textContent = 'Putting practice';
+    $('holeMeta').textContent = `${P.ladder[Math.min(P.i, P.ladder.length-1)]} m · putt ${Math.min(3, P.k + 1)} of 3`;
+    $('dist').innerHTML = `Made <b>${made}</b> of ${done} · ${P.ladder.map((d,i)=>i < P.i ? `${P.made[i]}` : i===P.i ? '▶' : '·').join(' ')}`;
+    drawMarker(`${distToBasket(lie).toFixed(1)} m`); return;
+  }
   if(mode==='range'){
     $('holeName').textContent = 'Driving Range';
     $('holeMeta').textContent = `Throw ${range.n + 1} · ${gearName(discKey)}`;
@@ -2739,7 +2755,8 @@ function handleEvent(e){
 }
 function toRest(){
   showStats('lie');
-  if(mode==='range'){ state = 'rest'; restTimer = 1.0; lastThrowDist = Math.hypot(flying.pos.x - lastLie.x, flying.pos.z - lastLie.z); flash(`${lastThrowDist.toFixed(0)} m`, 1.3); outcome = range.from==='tee' ? 'tee' : 'lie'; range.n++; return; }
+  if(mode==='range'){ state = 'rest'; restTimer = 1.0; lastThrowDist = Math.hypot(flying.pos.x - lastLie.x, flying.pos.z - lastLie.z); outcome = range.from==='tee' ? 'tee' : 'lie'; range.n++;
+    if(range.putt){ const left = distToBasket(flying.pos); flash(`Missed · ${left.toFixed(1)} m away`, 1.3); puttResult(false); } else flash(`${lastThrowDist.toFixed(0)} m`, 1.3); return; }
   state = 'rest'; restTimer = 1.0;
   lastThrowDist = Math.hypot(flying.pos.x - lastLie.x, flying.pos.z - lastLie.z);
   const d = distToBasket(flying.pos);
@@ -2748,7 +2765,7 @@ function toRest(){
 }
 function outOfBounds(e){
   showStats('ob');
-  if(mode==='range'){ sfx.thunk(); state = 'rest'; restTimer = 1.2; flash('Out of the range', 1.2); outcome = 'tee'; range.n++; return; }
+  if(mode==='range'){ sfx.thunk(); state = 'rest'; restTimer = 1.2; flash('Out of the range', 1.2); outcome = 'tee'; range.n++; puttResult(false); return; }
   if(e==='ob-water') sfx.splash(); else sfx.thunk();
   state = 'rest'; restTimer = 1.9; flying.vel.x = flying.vel.y = flying.vel.z = 0;
   if(e==='ob-water' || e==='ob-gorge') for(const k in discs) discs[k].visible = false;
@@ -2760,7 +2777,7 @@ function holed(){
   if(mode==='range'){
     state = 'rest'; restTimer = 1.8; if(GOLF) sfx.cup(); else sfx.chains(); showStats('chains'); range.n++;
     const B = flying.inBasket || W.basket; flying.pos.x = B.x + 0.08; flying.pos.y = B.y + 0.6; flying.pos.z = B.z; flying.vel.x = flying.vel.y = flying.vel.z = 0;
-    flash(`${GOLF ? 'In the hole! ⛳' : 'Chains! 🎯'}<br><span style="font-size:20px">${Math.hypot(B.x - lastLie.x, B.z - lastLie.z).toFixed(0)} m</span>`, 1.7); sfx.cheer(); outcome = 'tee'; return;
+    flash(`${GOLF ? 'In the hole! ⛳' : 'Chains! 🎯'}<br><span style="font-size:20px">${Math.hypot(B.x - lastLie.x, B.z - lastLie.z).toFixed(0)} m</span>`, 1.7); sfx.cheer(); outcome = 'tee'; puttResult(true); return;
   }
   state = 'holed'; if(GOLF) sfx.cup(); else sfx.chains();
   const HB = flying.inBasket || C.cupNearW(W, flying.pos);
@@ -2979,7 +2996,7 @@ function startRange(){
   if(!actx) initAudio();
   applySport(settings.sport || 'disc');
   mode = 'range'; tier = -1; field = []; players = [mkPlayer('You', 0)]; you = players[0]; cur = 0;
-  const svr = loadRange(); range = {n:0, best:svr.best || {}, longest:svr.longest || null, from:'tee', wind:0}; winds = [{x:0, z:0}]; holeIdx = 0; strokes = 0; lastThrowDist = 0;
+  const svr = loadRange(); range = {n:0, best:svr.best || {}, longest:svr.longest || null, from:'tee', wind:0, putt:null}; $('rPutt').textContent = '🎯 Putting'; $('rPutt').classList.remove('on'); $('rFrom').classList.remove('hidden'); winds = [{x:0, z:0}]; holeIdx = 0; strokes = 0; lastThrowDist = 0;
   $('menuScreen').classList.add('hidden'); $('top').classList.remove('hidden'); $('bottom').classList.remove('hidden');
   $('board').classList.add('hidden'); $('rangeRow').classList.remove('hidden');
   const ld = $('loading'); ld.classList.remove('hidden');
@@ -2995,6 +3012,82 @@ function renderRangeBtns(){
   $('rFrom').textContent = 'Throw from: ' + (range.from==='tee' ? 'tee' : 'where it lands');
 }
 $('rangeBtn').addEventListener('click', startRange);
+// ---- putting practice: a short tutorial, then 3 putts from each of a ladder of distances ----
+const PUTT_LADDER = {disc:[5, 8, 12, 16, 20, 25, 30], golf:[1.5, 2.5, 4, 6, 8, 10]};
+function puttTutorial(){
+  return GOLF ? [
+    ['Putting practice', 'Six distances, three putts each, from 1.5 m to 10 m. Your best score is saved.<br><br>This quick guide shows how putting works.'],
+    ['1 · Read the line', 'The <b>dotted line</b> shows a putt at the right pace, including the <b>slope</b>. The little white arrows on the green drift downhill.<br><br>Drag anywhere to aim so the line finishes in the cup. On a slope, aim above the hole.'],
+    ['2 · Set the pace', 'Touch below the ball and <b>pull down</b>. The bar shows your backswing.<br><br>The <b>white marker</b> on the bar is the pace that drops it. You get <b>"✓ on pace"</b> and a buzz when you\'re there.'],
+    ['3 · Stroke it', 'Swipe <b>straight up</b> through the ball. A swipe angled more than a few degrees pushes the putt off line.<br><br>A dying putt that reaches the hole usually falls. Too firm and it lips out.']
+  ] : [
+    ['Putting practice', 'Seven distances, three putts each, from 5 m to 30 m. Your best score is saved.<br><br>This quick guide shows how putting works.'],
+    ['1 · Aim', 'Drag anywhere (not on the disc) to look at the basket. Aim at the <b>chains</b>, not the cage.<br><br>Tap the map to aim from above if you like.'],
+    ['2 · Power = swipe length', 'Near the basket with the putter, only <b>how far your finger travels</b> sets power. Speed doesn\'t matter.<br><br>Touch the disc, swipe up and let go at the <b>white marker</b> on the bar. It shows <b>"✓ release now"</b> with a buzz.'],
+    ['3 · Height and tilt', 'Let go <b>around the middle</b> of the screen for a flat putt into the chains. Letting go higher lobs it.<br><br>Keep the disc <b>flat</b> (finger near the middle) unless you want it to curve. Wind on the range button makes it harder.']
+  ];
+}
+let ptPage = 0, ptMode = 'tut';
+function renderPuttCard(){
+  if(ptMode==='tut'){
+    const pages = puttTutorial(), pg = pages[ptPage];
+    $('ptTitle').textContent = pg[0]; $('ptBody').innerHTML = pg[1];
+    $('ptDots').textContent = pages.map((_,i)=>i===ptPage ? '●' : '○').join('');
+    $('ptBack').textContent = ptPage ? 'Back' : 'Skip guide'; $('ptNext').textContent = ptPage===pages.length-1 ? 'Start putting' : 'Next';
+  } else {
+    const P = range.putt, made = P.made.reduce((a,b)=>a+b,0), tot = P.ladder.length*3, key = (GOLF ? 'golf' : 'disc') + '-putt-best';
+    let best = 0; try{ best = +localStorage.getItem('discgolf-' + key) || 0; }catch(e){}
+    const isBest = made > best; if(isBest) try{ localStorage.setItem('discgolf-' + key, made); }catch(e){}
+    $('ptTitle').textContent = 'Putting results';
+    $('ptBody').innerHTML = `<div class="big" style="text-align:center">${made} / ${tot}</div>` + (isBest ? '<p style="text-align:center;font-weight:700;color:#e08a00;margin:2px 0">🏆 New best!</p>' : best ? `<p style="text-align:center;margin:2px 0;opacity:.8">Best: ${best} / ${tot}</p>` : '') +
+      `<table class="lb">${P.ladder.map((d,i)=>`<tr><td>${d} m</td><td>${'🎯'.repeat(P.made[i])}${'·'.repeat(3 - P.made[i])}</td><td class="rel">${P.made[i]}/3</td></tr>`).join('')}</table>` +
+      `<p style="font-size:13px;opacity:.85">${puttAdvice(P)}</p>`;
+    $('ptDots').textContent = ''; $('ptBack').textContent = 'Back to range'; $('ptNext').textContent = 'Go again';
+  }
+}
+function puttAdvice(P){
+  const ld = P.ladder, i = P.made.findIndex(m=>m < 2);
+  if(i < 0) return 'Superb. Try it with the wind on to make it harder.';
+  return `Your makes drop off from ${ld[i]} m. Practise there: watch the marker and let go right on it.` + (P.long > P.short ? ' Most misses were long, so ease off a touch.' : P.short > P.long ? ' Most misses were short. Remember the basket is above ground, so it\'s never in if it doesn\'t get there.' : '');
+}
+function openPuttPractice(){ if(state!=='aim' && state!=='rest') return; ptMode = 'tut'; ptPage = 0; renderPuttCard(); $('puttScreen').classList.remove('hidden'); }
+function startPuttDrill(){
+  const B = W.baskets[1], ladder = PUTT_LADDER[GOLF ? 'golf' : 'disc'];
+  range.putt = {B, ladder, i:0, k:0, made:ladder.map(()=>0), long:0, short:0};
+  $('rPutt').textContent = '✋ Stop putting'; $('rPutt').classList.add('on'); $('rFrom').classList.add('hidden');
+  puttStation(); flash(`Putting practice<br><span style="font-size:20px">${ladder[0]} m · 3 putts</span>`, 1.8);
+}
+function puttStation(){
+  const P = range.putt, d = P.ladder[P.i], x = P.B.x, z = P.B.z + d;
+  lie.set(x, C.surface(W, x, z, 50).s + 0.02, z); lastLie.copy(lie);
+  if(GOLF) setClub('putter'); else setDisc('putter');
+  for(const k in discs) discs[k].visible = false; trailPts = []; updateTrail();
+  faceBasket(); state = 'aim'; setDisc(discKey); updateHUD(); prevKey = ''; dputt.key = '';
+}
+function stopPuttDrill(){
+  range.putt = null; $('rPutt').textContent = '🎯 Putting'; $('rPutt').classList.remove('on'); $('rFrom').classList.remove('hidden');
+  lie.set(0, W.T(0,0).h + 0.15, 0); lastLie.copy(lie); faceBasket(); state = 'aim'; setDisc(GOLF ? 'driver' : 'driver'); updateHUD();
+}
+function puttResult(made){   // called after each practice putt settles; returns true when the drill is handling the next lie
+  const P = range.putt; if(!P) return false;
+  if(made) P.made[P.i]++;
+  else if(flying){ const along = (P.B.z + P.ladder[P.i]) - flying.pos.z, d = P.ladder[P.i]; if(along > d + 0.5) P.long++; else if(along < d - 0.5) P.short++; }
+  P.k++;
+  if(P.k >= 3){ P.k = 0; P.i++; }
+  if(P.i >= P.ladder.length){ outcome = 'putt-done'; return true; }
+  outcome = 'putt'; return true;
+}
+$('rPutt').addEventListener('click', ()=>{ if(range.putt){ stopPuttDrill(); return; } openPuttPractice(); });
+$('ptBack').addEventListener('click', ()=>{
+  if(ptMode==='res'){ $('puttScreen').classList.add('hidden'); stopPuttDrill(); return; }
+  if(ptPage===0){ $('puttScreen').classList.add('hidden'); startPuttDrill(); return; }
+  ptPage--; renderPuttCard();
+});
+$('ptNext').addEventListener('click', ()=>{
+  if(ptMode==='res'){ $('puttScreen').classList.add('hidden'); startPuttDrill(); return; }
+  if(ptPage < puttTutorial().length - 1){ ptPage++; renderPuttCard(); return; }
+  $('puttScreen').classList.add('hidden'); startPuttDrill();
+});
 $('rWind').addEventListener('click', ()=>{ range.wind = (range.wind + 1) % 3; const sp = [0, 3, 7][range.wind], a = Math.random()*Math.PI*2; winds = [{x:Math.sin(a)*sp, z:Math.cos(a)*sp}]; renderRangeBtns(); });
 $('rFrom').addEventListener('click', ()=>{ range.from = range.from==='tee' ? 'lie' : 'tee'; if(range.from==='tee' && (state==='aim')){ lie.set(0, W.T(0,0).h + 0.15, 0); faceBasket(); } renderRangeBtns(); });
 $('statsCard').addEventListener('click', ()=>{ const c = $('statsCard'); c.classList.toggle('compact'); statsTimer = c.classList.contains('compact') ? 6 : 0; });
@@ -3018,6 +3111,7 @@ $('goLocal').addEventListener('click', ()=>{
 function moveToLie(){
   const fade = $('fade'); fade.style.opacity = 1; state = 'transition';
   setTimeout(()=>{
+    if(outcome==='putt' || outcome==='putt-done'){ fade.style.opacity = 0; if(outcome==='putt-done'){ ptMode = 'res'; renderPuttCard(); $('puttScreen').classList.remove('hidden'); state = 'aim'; return; } const P = range.putt; puttStation(); if(P.k===0) flash(`${P.ladder[P.i]} m · 3 putts`, 1.4); return; }
     if(outcome==='tee') lie.set(0, W.T(0,0).h + 0.15, 0); else if(outcome==='lie') lie.set(flying.pos.x, flying.pos.y - 0.02, flying.pos.z); else lie.copy(lastLie);
     if(mode==='online' && cur===myIdx){ savePlayer(); netSendThrow(outcome); }
     for(const k in discs) discs[k].visible = false;

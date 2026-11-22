@@ -55,4 +55,14 @@ const D = device('Andy');
   }
   console.log('\nHUD:', D.els.dist.innerHTML.replace(/<[^>]+>/g,' '));
   D.els.rFrom.fire('click'); D.els.rWind.fire('click'); console.log('buttons:', D.els.rFrom.textContent, '|', D.els.rWind.textContent);
+  D.els.rWind.fire('click'); D.els.rWind.fire('click'); D.els.rFrom.fire('click');
+  D.els.rPutt.fire('click'); console.log('putt guide:', D.els.ptTitle.textContent, '| hidden?', D.els.puttScreen.classList.contains('hidden'));
+  for(let i=0;i<4;i++) D.els.ptNext.fire('click');
+  console.log('drill:', D.els.holeName.textContent, '|', D.els.holeMeta.textContent, '|', D.els.dist.innerHTML.replace(/<[^>]+>/g,''), '| disc', D.dg.discKey);
+  for(let n=0;n<21;n++){
+    flick(30, 0.45); let g=0; while(D.dg.state!=='aim' && g++<3000){ D.frame(1); D.flush(); }
+    if(n%3===2) console.log(' after', n+1, ':', D.els.holeMeta.textContent, '|', D.els.dist.innerHTML.replace(/<[^>]+>/g,''));
+  }
+  console.log('results:', D.els.ptTitle.textContent, '| shown', !D.els.puttScreen.classList.contains('hidden'), '|', D.els.ptBody.innerHTML.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').slice(0,300));
+  D.els.ptBack.fire('click'); console.log('back to range:', D.els.holeName.textContent, D.els.rPutt.textContent);
 })();
