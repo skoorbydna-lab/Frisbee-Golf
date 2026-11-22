@@ -172,11 +172,12 @@
   <div class="card">
     <h2 style="margin:0">📜 Course records</h2>
     <p id="recSport" style="margin:2px 0 8px;font-size:13px;opacity:.75"></p>
+    <div class="row" id="recWho" style="margin-bottom:6px"><button class="chip on" data-rw="world">🌍 Everyone</button><button class="chip" data-rw="phone">📱 This phone</button></div>
     <div class="row" id="recCourse"></div>
     <div class="row" id="recLen" style="margin-top:6px"></div>
     <p id="recPar" style="margin:6px 0 0;font-size:13px;font-weight:600"></p>
     <table class="lb" id="recList"></table>
-    <p style="font-size:12px;opacity:.7;margin:6px 0">Finished rounds on this phone: practice, tournaments, pass &amp; play and online. Shuffle and Quick 3 aren't recorded because their holes change.</p>
+    <p id="recFoot" style="font-size:12px;opacity:.7;margin:6px 0"></p>
     <button class="btn" id="recClose">Close</button>
   </div>
 </div>
@@ -2636,6 +2637,52 @@ function showHoleCard(label){
   $('nextBtn').disabled = mode==='online' && !net.host; if($('nextBtn').disabled) $('nextBtn').textContent = 'Waiting for the host…';
   $('holeScreen').classList.remove('hidden');
 }
+// ---- shared leaderboard (Firebase Firestore, same project as Tap Athletics); scores queue offline and post later ----
+const FB_CONFIG = {apiKey:'AIzaSyDv3JfyJWQ6BFJ03WQIK4OJ4OnQWNY5uNo', authDomain:'javelin-toss-fe81d.firebaseapp.com', projectId:'javelin-toss-fe81d', storageBucket:'javelin-toss-fe81d.firebasestorage.app', messagingSenderId:'310679295817', appId:'1:310679295817:web:65a93e4940e62a5ae5ac98'};
+const cloud = {db:null, loading:null, err:'', Q_KEY:'discgolf-cloudq'};
+function cloudColl(sport, course, len){ return `fg_${sport}_${course}_${len}`; }
+function cloudInit(){
+  if(cloud.db) return Promise.resolve(cloud.db);
+  if(cloud.loading) return cloud.loading;
+  const load = src=>new Promise((ok, bad)=>{ try{ const sc = document.createElement('script'); sc.src = src; sc.onload = ok; sc.onerror = ()=>bad(new Error('offline')); document.head.appendChild(sc); }catch(e){ bad(e); } });
+  cloud.loading = (window.firebase && firebase.firestore ? Promise.resolve() : load('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js').then(()=>load('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js')))
+    .then(()=>{ const app = firebase.apps.find(a=>a.name==='fg') || firebase.initializeApp(FB_CONFIG, 'fg'); cloud.db = app.firestore(); return cloud.db; })
+    .catch(e=>{ cloud.loading = null; cloud.err = e.message || 'offline'; throw e; });
+  return cloud.loading;
+}
+function cloudQueue(){ try{ return JSON.parse(localStorage.getItem(cloud.Q_KEY)) || []; }catch(e){ return []; } }
+function cloudSetQueue(q){ try{ localStorage.setItem(cloud.Q_KEY, JSON.stringify(q.slice(-50))); }catch(e){} }
+async function cloudFlush(){
+  let q = cloudQueue(); if(!q.length) return;
+  const db = await cloudInit(), left = [];
+  for(const it of q){
+    try{ await db.collection(it.coll).add({n:it.n, total:it.total, par:it.par, holes:it.holes, how:it.how, t:firebase.firestore.FieldValue.serverTimestamp()}); }
+    catch(e){ if(e && e.code==='permission-denied') continue; left.push(it); }   // rejected scores are dropped, network trouble waits
+  }
+  cloudSetQueue(left);
+}
+async function cloudPost(entries){       // returns [{e, rank, of}] once posted
+  const sport = GOLF ? 'golf' : 'disc', coll = cloudColl(sport, roundInfo.course, roundInfo.key);
+  cloudSetQueue(cloudQueue().concat(entries.map(e=>({coll, n:e.name, total:e.total, par:e.par, holes:RH.length, how:e.how}))));
+  await cloudFlush();
+  const db = await cloudInit(), out = [];
+  for(const e of entries){
+    try{
+      const better = (await db.collection(coll).where('total', '<', e.total).count().get()).data().count;
+      const all = (await db.collection(coll).count().get()).data().count;
+      out.push({e, rank:better + 1, of:all});
+    }catch(err){}
+  }
+  return out;
+}
+async function cloudTop(coll){
+  const db = await cloudInit(), snap = await db.collection(coll).orderBy('total').limit(25).get();
+  return snap.docs.map(d=>({name:String(d.get('n') || 'Player'), total:Number(d.get('total')), par:Number(d.get('par')), how:String(d.get('how') || ''), when:(d.get('t') && d.get('t').toMillis) ? d.get('t').toMillis() : Date.now()}))
+    .sort((a,b)=>a.total - b.total || a.when - b.when).slice(0, 10);
+}
+setTimeout(()=>{ if(cloudQueue().length) cloudFlush().catch(()=>{}); }, 4000);
+addEventListener('online', ()=>{ if(cloudQueue().length) cloudFlush().catch(()=>{}); });
+
 // ---- course records: best rounds per sport / course / length, kept on this phone ----
 const REC_KEY = 'discgolf-records', REC_COURSES = ['classic','open','canyon','island'], REC_LENS = [['front','Front 9'],['back','Back 9'],['all','All 18']];
 function loadRecs(){ try{ return JSON.parse(localStorage.getItem(REC_KEY)) || {}; }catch(e){ return {}; } }
@@ -2646,30 +2693,47 @@ function saveRecords(){
   if(!recordable()) return [];
   const recs = loadRecs(), k = recBoardKey(GOLF ? 'golf' : 'disc', roundInfo.course, roundInfo.key), board = recs[k] || [];
   const par = RH.reduce((a,h)=>a + h.par, 0), when = Date.now(), how = mode==='tour' ? C.TOURS[tier].name : mode==='online' ? 'Online' : mode==='local' ? 'Pass & play' : 'Practice';
-  const mine = [];
+  const mine = [], post = [];
   for(const p of players){
     if(p.cpu || p.scores.length !== RH.length || p.scores.some(v=>!(v > 0))) continue;
     const e = {name:humanName(p), total:p.scores.reduce((a,b)=>a+b,0), par, when, how, id:Math.random().toString(36).slice(2,8)};
-    board.push(e); mine.push(e);
+    board.push(e); mine.push(e); if(mode!=='online' || p===players[myIdx]) post.push(e);
   }
   board.sort((a,b)=>a.total - b.total || a.when - b.when);
   recs[k] = board.slice(0, 20);
   try{ localStorage.setItem(REC_KEY, JSON.stringify(recs)); }catch(e){}
+  if(post.length) cloudPost(post).then(res=>{
+    if(!res.length || state!=='finished') return;
+    const where = `${courseLabel(roundInfo.course)} ${REC_LENS.find(x=>x[0]===roundInfo.key)[1]}`;
+    const html = res.map(o=>`<p style="margin:4px 0;font-weight:600">🌍 ${esc(o.e.name)}: ${o.rank===1 ? '<b>world record</b> on ' + where + '!' : ord(o.rank) + ' of ' + o.of + ' on the ' + where + ' leaderboard'}</p>`).join('');
+    $('hsSub').insertAdjacentHTML('beforeend', html);
+  }).catch(()=>{});
   return mine.map(e=>({e, rank:recs[k].indexOf(e) + 1})).filter(o=>o.rank > 0);
 }
-let recSel = {course:'classic', len:'front'};
+let recSel = {course:'classic', len:'front', who:'world'}, recReq = 0;
 function renderRecs(){
-  const sport = GOLF ? 'golf' : 'disc', recs = loadRecs(), board = recs[recBoardKey(sport, recSel.course, recSel.len)] || [];
+  const sport = GOLF ? 'golf' : 'disc', recs = loadRecs(), world = recSel.who==='world';
+  let board = world ? null : (recs[recBoardKey(sport, recSel.course, recSel.len)] || []);
+  document.querySelectorAll('[data-rw]').forEach(b=>{ b.classList.toggle('on', b.dataset.rw===recSel.who); b.onclick = ()=>{ recSel.who = b.dataset.rw; renderRecs(); }; });
+  $('recFoot').textContent = world ? 'Everyone who has finished this round, on any phone. Shuffle and Quick 3 aren\'t recorded because their holes change.' : 'Finished rounds on this phone: practice, tournaments, pass & play and online.';
   $('recSport').textContent = GOLF ? '⛳ Golf' : '🥏 Disc golf';
   $('recCourse').innerHTML = REC_COURSES.map(c=>`<button class="chip${c===recSel.course ? ' on' : ''}" data-rc="${c}">${courseLabel(c)}</button>`).join('');
   $('recLen').innerHTML = REC_LENS.map(([k,n])=>`<button class="chip${k===recSel.len ? ' on' : ''}" data-rl="${k}">${n}</button>`).join('');
   const R = makeRound(recSel.course, recSel.len), par = R.idx.reduce((a,i)=>a + C.HOLES[i].par, 0);
   $('recPar').textContent = `Par ${par}`;
   const d = t=>new Date(t).toLocaleDateString(undefined, {day:'numeric', month:'short', year:'2-digit'});
-  $('recList').innerHTML = board.length ? board.slice(0, 10).map((e,i)=>`<tr${i===0 ? ' class="me"' : ''}><td>${i===0 ? '🏆' : i+1}</td><td>${esc(e.name)}<br><span style="font-size:11px;opacity:.7">${esc(e.how)} · ${d(e.when)}</span></td><td class="rel">${relTxt(e.total - e.par)}</td><td>${e.total}</td></tr>`).join('')
-    : `<tr><td>–</td><td>No finished rounds yet. Play the ${courseLabel(recSel.course)} ${REC_LENS.find(x=>x[0]===recSel.len)[1]} to set the first record.</td><td></td><td></td></tr>`;
+  const myReq = ++recReq;
+  if(world){
+    $('recList').innerHTML = '<tr><td>…</td><td>Loading the leaderboard…</td><td></td><td></td></tr>';
+    cloudTop(cloudColl(sport, recSel.course, recSel.len)).then(rows=>{ if(myReq===recReq && recSel.who==='world') drawRecList(rows); })
+      .catch(()=>{ if(myReq===recReq) $('recList').innerHTML = '<tr><td>📡</td><td>Couldn\'t reach the leaderboard. Check your connection, or look at This phone.</td><td></td><td></td></tr>'; });
+  } else drawRecList(board);
   document.querySelectorAll('[data-rc]').forEach(b=>b.onclick = ()=>{ recSel.course = b.dataset.rc; renderRecs(); });
   document.querySelectorAll('[data-rl]').forEach(b=>b.onclick = ()=>{ recSel.len = b.dataset.rl; renderRecs(); });
+}
+function drawRecList(board){
+  $('recList').innerHTML = board.length ? board.slice(0, 10).map((e,i)=>`<tr${i===0 ? ' class="me"' : ''}><td>${i===0 ? '🏆' : i+1}</td><td>${esc(e.name)}<br><span style="font-size:11px;opacity:.7">${esc(e.how)} · ${d(e.when)}</span></td><td class="rel">${relTxt(e.total - e.par)}</td><td>${e.total}</td></tr>`).join('')
+    : `<tr><td>–</td><td>No finished rounds yet. Play the ${courseLabel(recSel.course)} ${REC_LENS.find(x=>x[0]===recSel.len)[1]} to set the first record.</td><td></td><td></td></tr>`;
 }
 $('recordsBtn').addEventListener('click', ()=>{
   const c = settings.course, k = settings.round;
