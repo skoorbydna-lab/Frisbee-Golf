@@ -1308,12 +1308,12 @@ function bigMapDraw(){
   if(ws > 0.2){ g.save(); g.translate(cx0, cy0); g.rotate(Math.atan2(wx, -wz)); g.fillStyle = '#2a8fd6'; g.strokeStyle = '#14202b'; g.lineWidth = 1.5*d; g.beginPath(); g.moveTo(0, -16*d); g.lineTo(8*d, 0); g.lineTo(3*d, 0); g.lineTo(3*d, 14*d); g.lineTo(-3*d, 14*d); g.lineTo(-3*d, 0); g.lineTo(-8*d, 0); g.closePath(); g.fill(); g.stroke(); g.restore(); }
   txt(`${ws.toFixed(0)} m/s`, cx0, cy0 + 40*d, '#fff', 12);
   $('bigMapInfo').innerHTML = `<b>${esc(gearName(discKey))}</b>: dashed ring = best case, ~${M.total.toFixed(0)} m${GOLF && discKey!=='putter' ? ` (${M.carry.toFixed(0)} carry)` : ''} on open flat ground` + (!GOLF && capPred.pt ? `<br><span style="color:#b8860b">●</span> Yellow = your ${Math.round(powerCap*100)}% throw on this line: <b>${capPred.d.toFixed(0)} m</b>${capPred.hit && capPred.res!=='in' ? `, clips ${capPred.hit.what}` : ''}` : '') +
-    `<br>${canAimOnMap() ? '👆 Tap or drag on the map to aim' : 'Map view'} · ${distToBasket(lie).toFixed(0)} m to the ${GOLF ? 'hole' : 'basket'}`;
+    (big.powNote && !GOLF && big.aim ? `<br><b style="color:#b8860b">${esc(big.powNote)}</b>` : '') + `<br>${canAimOnMap() ? (GOLF ? '👆 Tap or drag on the map to aim' : '👆 Tap where you want it to land: sets aim and power') : 'Map view'} · ${distToBasket(lie).toFixed(0)} m to the ${GOLF ? 'hole' : 'basket'}`;
 }
 function openBigMap(){
   if(!W || !mapTf || state==='menu') return;
   exitScout && state==='scout' && exitScout();
-  big.open = true; big.aim = null; $('bigMapScreen').classList.remove('hidden');
+  big.open = true; big.aim = null; big.powNote = ''; $('bigMapScreen').classList.remove('hidden');
   if(big.hole !== W || !big.img) requestAnimationFrame(()=>{ bigMapBuild(); bigMapDraw(); }); else bigMapDraw();
 }
 function closeBigMap(){ big.open = false; $('bigMapScreen').classList.add('hidden'); }
@@ -1323,8 +1323,19 @@ function bigMapAim(e){
   const [x, z] = big.tf.inv((e.clientX - r.left)*k, (e.clientY - r.top)*k);
   if(Math.hypot(x - lie.x, z - lie.z) < 3) return;
   yaw = Math.atan2(-(x - lie.x), -(z - lie.z)); big.aim = {x, z}; prevKey = '';
+  if(!GOLF){ const now = performance.now(); if(e.type!=='pointermove' || now - (big.powT || 0) > 160){ big.powT = now; powerForPoint(x, z); } }
   if(GOLF) updatePreview(0); else updateCapPred(0);
   bigMapDraw();
+}
+// disc golf: pick the power whose full flick finishes at the tapped spot (measured along the line, so slopes and wind count)
+function powerForPoint(x, z){
+  const want = Math.hypot(x - lie.x, z - lie.z); let a = 0.1, b = 1, best = 1, hitIn = false;
+  const B = targetOf(lie), toBasket = Math.hypot(B.x - x, B.z - z) < 2;
+  const full = simDisc(discKey, capSpeed(discKey, 1));
+  if(full.d < want){ big.powNote = `Out of reach for the ${gearName(discKey)}: 100% gets ~${full.d.toFixed(0)} m`; setCap(1, false); return; }
+  for(let k=0;k<9;k++){ const m = (a+b)/2, r = simDisc(discKey, capSpeed(discKey, m)); if(toBasket && r.res==='in'){ best = m; hitIn = true; break; } if(r.d < want) a = m; else b = m; best = (a+b)/2; }
+  big.powNote = `Power set to ${Math.round(best*100)}% for ${want.toFixed(0)} m` + (hitIn ? ' · into the chains 🎯' : '');
+  setCap(Math.round(best*100)/100, false);
 }
 $('map').addEventListener('click', e=>{ e.stopPropagation(); openBigMap(); });
 $('map').addEventListener('pointerdown', e=>e.stopPropagation());
