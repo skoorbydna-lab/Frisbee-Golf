@@ -15,6 +15,7 @@ Switch the sport at the top of the menu. Every course, round length and mode wor
 - **Clubs:** Driver (~160 m), 5 Iron (~140), 9 Iron (~110), Wedge (~65), Putter — picked automatically by distance, tap to change.
 - **Swipe swing:** touch below the ball, pull down for the backswing, then swipe up through the ball. Backswing length + tempo = power; swiping up-and-right slices, up-and-left hooks.
 - **Motion swing (optional):** turn on 📱 Motion swing, tap below the ball, then swing the phone. Peak swing speed sets power; wrist roll in the downswing opens/closes the face. *Gentle* mode scales small wrist swings up. Needs the GitHub Pages version (motion sensors are blocked inside Claude); iPhones ask for permission once. Hold on tight — a wrist strap is best.
+- **Your golfer:** a golfer stands at the ball and swings with you (shoulder turn, wrist hinge, follow-through). Clubs are modelled at their real lie angles and lengths (driver 56°, irons ~61–64°, putter 71°). Tap **🧑 Your golfer** on the menu to change name, skin, hair, cap, top, trousers, height and build; online, everyone sees each other's golfers.
 - The ball bounces and rolls differently on greens, fairway, rough and sand, backspin checks it up on short grass, and putts can lip out.
 
 ## Modes
@@ -40,4 +41,4 @@ Each themed course weaves the six hand-built holes of its type in with twelve ge
 - `src/core.js` – courses, terrain, physics, CPU scoring (plain JS, testable in Node).
 - `src/game.html` – graphics, controls, menus, multiplayer.
 - `build.py` – rebuilds `index.html` from `src/`.
-- `tests/` – Node tests (golf: `golf_test.js`, `motion_test.js`): a bot plays every hole (`holes_bot.js`), round types (`rounds_test.js`), the range, and a two-phone online game with refreshes (`online_test.js`).
+- `tests/` – Node tests (golf: `golf_test.js`, `motion_test.js`, `editor_test.js`): a bot plays every hole (`holes_bot.js`), round types (`rounds_test.js`), the range, and a two-phone online game with refreshes (`online_test.js`).

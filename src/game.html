@@ -64,6 +64,9 @@
   #statsCard .sbar i{display:block;height:100%}
   #statsCard .stip{margin-top:4px;padding-top:4px;border-top:2px dashed rgba(20,32,43,.3);font-weight:600}
   body.busy #discRow, body.busy #motionRow, body.busy #clubRow, body.busy #rangeRow, body.busy #hint{display:none!important}
+  .edrow{margin-top:8px} .edrow b{display:block;font-size:13px;margin-bottom:3px}
+  .sw{display:flex;gap:6px;flex-wrap:wrap} .sw button{width:32px;height:32px;border-radius:50%;border:3px solid var(--ink);box-shadow:0 2px 0 var(--ink);padding:0}
+  .sw button.on{outline:3px solid var(--orange);outline-offset:2px}
   .hidden{display:none!important}
   input.name{width:100%;margin:4px 0;padding:8px 10px;border:3px solid var(--ink);border-radius:12px;font:600 16px 'Fredoka',sans-serif;-webkit-user-select:text;user-select:text;background:#fff}
   .pdot{display:inline-block;width:12px;height:12px;border-radius:50%;border:2px solid var(--ink);vertical-align:-1px;margin-right:4px}
@@ -142,6 +145,7 @@
     <div id="tourList"></div>
     <button class="tour" id="onlineBtn">🌐 Online play<small>2–4 players on their own phones. Host a game and share the code.</small></button>
     <button class="tour" id="localBtn">👥 Pass &amp; play<small>2–4 players on one phone. Furthest from the basket throws next.</small></button>
+    <button class="tour" id="golferBtn">🧑 Your golfer<small>Change your golfer's look, name and build.</small></button>
     <button class="tour" id="rangeBtn">🎯 Driving range<small>Unlimited throws at target baskets, with a breakdown of every flick.</small></button>
     <button class="tour" id="practiceBtn">Practice round<small>The round you picked above, no opponents, gentle preset winds.</small></button>
     <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div><div class="row" style="margin-top:6px"><button class="chip setS">Throw stats in rounds: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setW">Opponents' throws: watch</button></div>
@@ -208,6 +212,23 @@
     <p id="passSub"></p>
     <table class="lb" id="passLb"></table>
     <button class="btn" id="passGo">I'm ready</button>
+  </div>
+</div>
+
+<div class="hidden" id="editorScreen" style="position:fixed;left:0;right:0;bottom:0;z-index:6;padding:10px 10px calc(10px + env(safe-area-inset-bottom))">
+  <div class="card" style="max-width:460px;margin:0 auto;text-align:left;max-height:56vh;overflow:auto">
+    <h2 style="text-align:center">Your golfer</h2>
+    <input class="name" id="edName" maxlength="14" placeholder="Name (used online and in pass & play)">
+    <div class="edrow"><b>Skin</b><div id="edSkin" class="sw"></div></div>
+    <div class="edrow"><b>Hair</b><div id="edHair" class="row" style="flex-wrap:wrap"></div></div>
+    <div class="edrow"><b>Hair colour</b><div id="edHairCol" class="sw"></div></div>
+    <div class="edrow" id="edCapRow"><b>Cap</b><div id="edCap" class="sw"></div></div>
+    <div class="edrow"><b>Top</b><div id="edTop" class="sw"></div></div>
+    <div class="edrow"><b>Trousers</b><div id="edBottom" class="sw"></div></div>
+    <div class="edrow"><b>Height</b><div id="edHeight" class="row"></div></div>
+    <div class="edrow"><b>Build</b><div id="edBuild" class="row"></div></div>
+    <div class="edrow"><b>Club in preview</b><div id="edClub" class="row" style="flex-wrap:wrap"></div></div>
+    <div style="text-align:center"><button class="btn" id="edDone">Done</button></div>
   </div>
 </div>
 
@@ -447,13 +468,165 @@ const discPin = (()=>{ const cv = document.createElement('canvas'); cv.width = c
   g.beginPath(); g.moveTo(10,12); g.lineTo(54,12); g.lineTo(32,54); g.closePath(); g.fillStyle = '#ffffff'; g.fill(); g.lineWidth = 6; g.strokeStyle = '#14202b'; g.stroke();
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv), depthTest:false, sizeAttenuation:false, transparent:true}));
   sp.scale.set(0.045, 0.045, 1); sp.renderOrder = 11; sp.visible = false; scene.add(sp); return sp; })();
-const clubRig = (()=>{
-  const g = new THREE.Group(), pivot = new THREE.Group(); g.add(pivot); pivot.position.y = 1.05;
-  const shaft = outlined(new THREE.CylinderGeometry(0.012,0.012,1.0,8), '#c9d2d8', 0.2, {mat:REAL ? std({color:L('#d0d6da'), roughness:0.25, metalness:0.8}) : toon('#c9d2d8')}); shaft.position.y = -0.5; pivot.add(shaft);
-  const grip = outlined(new THREE.CylinderGeometry(0.02,0.02,0.25,8), '#1d1d1d', 0.1); grip.position.y = -0.03; pivot.add(grip);
-  const head = outlined(new THREE.BoxGeometry(0.1,0.05,0.04), '#3a3f44', 0.06, {mat:REAL ? std({color:L('#5a6066'), roughness:0.3, metalness:0.7}) : toon('#3a3f44')}); head.position.set(0.04,-1.0,0); pivot.add(head);
-  g.userData = {pivot}; g.visible = false; scene.add(g); return g;
-})();
+// ================= golfer + clubs =================
+// rig frame: origin at the ball, -z towards the target, the (right-handed) golfer stands on the -x side facing +x
+const CLUB_SPEC = {
+  driver:{len:1.12, lie:56, loft:11, kind:'wood'}, iron5:{len:0.98, lie:61, loft:24, kind:'iron'},
+  iron9:{len:0.92, lie:63.5, loft:40, kind:'iron'}, wedge:{len:0.9, lie:64, loft:54, kind:'iron'}, putter:{len:0.86, lie:71, loft:3, kind:'putter'}
+};
+const SKINS = ['#f6d5b8','#eab893','#cf9469','#a96d47','#7d4b2c','#4f301d'];
+const HAIRS = ['#1d1a18','#4a2f1c','#8a5a2b','#d9b26a','#b9b9b9','#c8442f'];
+const TOPS = ['#2a8fd6','#ff8a1f','#3fbf5f','#c75bd6','#e23b3b','#ffd000','#ffffff','#1d2a44'];
+const BOTTOMS = ['#1d2a44','#e8e2d0','#4a4a4a','#7a5a3a','#ffffff','#2f5a2a'];
+const DEFAULT_LOOK = {skin:1, hair:'short', hairCol:1, top:'#2a8fd6', bottom:'#1d2a44', cap:'#ffffff', height:1, build:1};
+function presetLook(i){ return {skin:(i*2+1)%6, hair:['short','cap','long','bun','bald'][i%5], hairCol:(i*3+1)%6, top:PCOL[i%4], bottom:BOTTOMS[(i+1)%BOTTOMS.length], cap:'#ffffff', height:[1,0.94,1.06,1][i%4], build:[1,0.9,1.12,1][i%4]}; }
+const golfMat = {};
+function gm(key, col, rough, metal){ const k = key + col; if(!golfMat[k]) golfMat[k] = REAL ? std({color:L(col), roughness:rough ?? 0.7, metalness:metal ?? 0}) : toon(col); return golfMat[k]; }
+function mesh(geo, mat, cast){ const m = new THREE.Mesh(geo, mat); m.castShadow = cast !== false; return m; }
+function buildClub(key){
+  const sp = CLUB_SPEC[key] || CLUB_SPEC.driver, g = new THREE.Group();
+  const chrome = gm('chrome', '#dfe4e8', 0.18, 0.95), black = gm('rubber', '#161616', 0.65, 0), steel = gm('steel', '#b9c1c7', 0.3, 0.9);
+  const grip = mesh(new THREE.CylinderGeometry(0.0135, 0.0105, 0.27, 12), black); grip.position.y = -0.135; g.add(grip);
+  const shaftL = sp.len - 0.27 - 0.04, shaft = mesh(new THREE.CylinderGeometry(0.0062, 0.0042, shaftL, 10), steel); shaft.position.y = -0.27 - shaftL/2; g.add(shaft);
+  const head = new THREE.Group(); head.position.y = -sp.len; head.rotation.z = -(90 - sp.lie)*Math.PI/180; g.add(head);   // head axes = rig axes
+  const hosel = mesh(new THREE.CylinderGeometry(0.0075, 0.009, 0.05, 10), sp.kind==='wood' ? black : chrome); hosel.position.set(-0.0, 0.03, 0); hosel.rotation.z = (90 - sp.lie)*Math.PI/180; head.add(hosel);
+  const loft = sp.loft*Math.PI/180;
+  if(sp.kind==='wood'){
+    const body = mesh(new THREE.SphereGeometry(1, 28, 18), gm('wood', '#1b1d22', 0.25, 0.6)); body.scale.set(0.058, 0.032, 0.05); body.position.set(0.058, 0.03, 0.012); head.add(body);
+    const face = mesh(new THREE.BoxGeometry(0.1, 0.045, 0.004), gm('face', '#3a3f46', 0.35, 0.8)); face.position.set(0.056, 0.03, -0.034); face.rotation.x = loft; head.add(face);
+    const dot = mesh(new THREE.CircleGeometry(0.006, 10), new THREE.MeshBasicMaterial({color:'#ffffff'}), false); dot.rotation.x = -Math.PI/2; dot.position.set(0.058, 0.063, -0.01); head.add(dot);
+  } else if(sp.kind==='putter'){
+    const blade = mesh(new THREE.BoxGeometry(0.105, 0.026, 0.024), gm('putter', '#2a2d31', 0.3, 0.8)); blade.position.set(0.05, 0.015, 0); head.add(blade);
+    const line = mesh(new THREE.BoxGeometry(0.003, 0.001, 0.02), new THREE.MeshBasicMaterial({color:'#ffffff'}), false); line.position.set(0.05, 0.029, 0); head.add(line);
+  } else {
+    const blade = mesh(new THREE.BoxGeometry(0.082, 0.05, 0.014), chrome); blade.position.set(0.046, 0.026, 0.002); blade.rotation.x = loft*0.8; head.add(blade);
+    const sole = mesh(new THREE.BoxGeometry(0.082, 0.012, 0.03), chrome); sole.position.set(0.046, 0.006, 0.01); head.add(sole);
+    const back = mesh(new THREE.BoxGeometry(0.06, 0.022, 0.008), gm('cavity', '#5c656c', 0.4, 0.7)); back.position.set(0.048, 0.022, 0.014 + Math.sin(loft*0.8)*0.02); back.rotation.x = loft*0.8; head.add(back);
+  }
+  return g;
+}
+function buildGolfer(look){
+  look = Object.assign({}, DEFAULT_LOOK, look || {});
+  const root = new THREE.Group(), hs = look.height || 1, bw = look.build || 1;
+  const skin = gm('skin', SKINS[look.skin] || SKINS[1], 0.75), top = gm('top', look.top, 0.8), bot = gm('bot', look.bottom, 0.85);
+  const shoe = gm('shoe', '#f4f4f4', 0.5), hairM = gm('hair', HAIRS[look.hairCol] || HAIRS[1], 0.9), capM = gm('cap', look.cap, 0.7);
+  const body = new THREE.Group(); body.scale.setScalar(hs); root.add(body);
+  for(const z of [-0.17, 0.17]){ const f = mesh(new THREE.BoxGeometry(0.27, 0.08, 0.1), shoe); f.position.set(0.05, 0.04, z); body.add(f); }
+  const legs = [];
+  const unit = new THREE.CylinderGeometry(1, 1, 1, 12), unitT = new THREE.CylinderGeometry(1, 0.85, 1, 12);
+  const limb = (m)=>{ const x = mesh(unitT, m); body.add(x); return x; };
+  for(const z of [-0.15, 0.15]){ const a = new THREE.Vector3(0.02, 0.09, z), k = new THREE.Vector3(0.12, 0.48, z*0.95), h = new THREE.Vector3(0.0, 0.9, z*0.7);
+    const shin = limb(bot), thigh = limb(bot); legs.push([shin, a, k, 0.06*bw], [thigh, k, h, 0.08*bw]); }
+  for(const [m, a, b, r] of legs) setLimb(m, a, b, r);
+  const pelvis = mesh(new THREE.SphereGeometry(1, 16, 12), bot); pelvis.scale.set(0.13*bw, 0.11, 0.19*bw); pelvis.position.set(0, 0.93, 0); body.add(pelvis);
+  const belt = mesh(new THREE.CylinderGeometry(0.135*bw, 0.135*bw, 0.03, 16), gm('belt', '#2a2420', 0.5)); belt.scale.z = 1.4; belt.position.set(0, 0.99, 0); body.add(belt);
+  const spine = new THREE.Group(); spine.position.set(0, 0.97, 0); spine.rotation.z = -0.55; body.add(spine);     // bent over the ball
+  const turn = new THREE.Group(); spine.add(turn);
+  const chest = mesh(new THREE.CylinderGeometry(0.2, 0.155, 0.52, 18), top); chest.scale.set(0.72*bw, 1, 1.0*bw); chest.position.y = 0.27; turn.add(chest);
+  const sh = mesh(new THREE.SphereGeometry(1, 16, 10), top); sh.scale.set(0.13*bw, 0.08, 0.22*bw); sh.position.y = 0.5; turn.add(sh);
+  const neck = mesh(new THREE.CylinderGeometry(0.05, 0.055, 0.1, 10), skin); neck.position.y = 0.58; turn.add(neck);
+  const head = new THREE.Group(); head.position.y = 0.7; head.rotation.z = -0.25; turn.add(head);
+  const skull = mesh(new THREE.SphereGeometry(0.105, 20, 16), skin); skull.scale.set(1, 1.08, 0.92); head.add(skull);
+  for(const z of [-0.035, 0.035]){ const e = mesh(new THREE.SphereGeometry(0.012, 8, 6), gm('eye', '#1b1b1b', 0.3), false); e.position.set(0.094, 0.02, z); head.add(e); }
+  const nose = mesh(new THREE.SphereGeometry(0.016, 8, 6), skin, false); nose.position.set(0.105, -0.005, 0); head.add(nose);
+  const cap = (m, frac)=>{ const c = mesh(new THREE.SphereGeometry(0.112, 20, 12, 0, Math.PI*2, 0, Math.PI*frac), m); c.scale.set(1, 1.05, 0.95); c.position.y = 0.012; c.rotation.z = 0.25; head.add(c); return c; };
+  if(look.hair==='short'){ cap(hairM, 0.42); }
+  else if(look.hair==='long'){ cap(hairM, 0.45); const b = mesh(new THREE.BoxGeometry(0.07, 0.24, 0.19), hairM); b.position.set(-0.07, -0.08, 0); head.add(b); }
+  else if(look.hair==='bun'){ cap(hairM, 0.42); const b = mesh(new THREE.SphereGeometry(0.05, 12, 10), hairM); b.position.set(-0.1, 0.07, 0); head.add(b); }
+  else if(look.hair==='cap'){ cap(hairM, 0.5); const c = cap(capM, 0.36); c.scale.multiplyScalar(1.04); const brim = mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.012, 16, 1, false, -Math.PI/2, Math.PI), capM); brim.scale.set(1.15, 1, 1); brim.position.set(0.06, 0.055, 0); brim.rotation.z = -0.15; head.add(brim); }
+  const shL = new THREE.Object3D(), shR = new THREE.Object3D(); shL.position.set(0.02, 0.47, -0.2*bw); shR.position.set(0.02, 0.47, 0.2*bw); turn.add(shL); turn.add(shR);
+  // arms are stretched between the shoulders and the hands on the grip every frame
+  const arms = [mesh(unitT, top), mesh(unitT, skin), mesh(unitT, top), mesh(unitT, skin)]; arms.forEach(a=>root.add(a));
+  const hands = [mesh(new THREE.SphereGeometry(0.045, 12, 10), skin), mesh(new THREE.SphereGeometry(0.043, 12, 10), skin)]; hands.forEach(h=>root.add(h));
+  root.userData = {turn, shL, shR, arms, hands, hs, look};
+  return root;
+}
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _up = new THREE.Vector3(0,1,0);
+function setLimb(m, a, b, r){ _b.copy(b).sub(a); const L = _b.length() || 0.001; m.position.copy(a).addScaledVector(_b, 0.5); m.quaternion.setFromUnitVectors(_up, _b.multiplyScalar(1/L)); m.scale.set(r, L, r); }
+// the whole rig: golfer + arms pivot + club
+const clubRig = new THREE.Group(); clubRig.visible = false; scene.add(clubRig);
+const rig = {golfer:null, lookKey:'', clubKey:'', club:null, pivot:new THREE.Group(), handsNode:new THREE.Group(), hinge:new THREE.Group(), n:new THREE.Vector3(), S:new THREE.Vector3()};
+clubRig.add(rig.pivot); rig.pivot.add(rig.handsNode); rig.handsNode.add(rig.hinge);
+function setRig(look, club){
+  const lk = JSON.stringify(look || {});
+  if(lk !== rig.lookKey){ if(rig.golfer) clubRig.remove(rig.golfer); rig.golfer = buildGolfer(look); clubRig.add(rig.golfer); rig.lookKey = lk; rig.clubKey = ''; }
+  if(club !== rig.clubKey){
+    if(rig.club) rig.hinge.remove(rig.club);
+    const sp = CLUB_SPEC[club] || CLUB_SPEC.driver, hs = rig.golfer.userData.hs;
+    rig.club = buildClub(club); rig.club.rotation.z = (90 - sp.lie)*Math.PI/180; rig.hinge.add(rig.club);
+    // hands sit where the club's grip is when the head rests behind the ball
+    // sweet spot of the face just behind the ball: shift the whole club (and hands) toward the heel and back from the target
+    const lie = sp.lie*Math.PI/180, sweet = sp.kind==='wood' ? 0.058 : 0.046, behind = sp.kind==='wood' ? 0.1 : sp.kind==='putter' ? 0.075 : 0.07;
+    const hands = new THREE.Vector3(-sp.len*Math.cos(lie) - sweet, sp.len*Math.sin(lie) + 0.015, behind - 0.03);
+    // stand so the arms hang naturally (~0.58 m shoulder to hands, scaled with height)
+    const armL = 0.58*hs, dy = 1.36*hs - hands.y;
+    rig.golfer.position.set(hands.x - 0.262*hs - Math.sqrt(Math.max(0.01, armL*armL - dy*dy)), 0, 0.0);
+    // swing centre = between the shoulders at address
+    rig.golfer.userData.turn.rotation.set(0,0,0); clubRig.updateMatrixWorld(true);
+    const A = rig.golfer.userData.shL.getWorldPosition(new THREE.Vector3()), B = rig.golfer.userData.shR.getWorldPosition(new THREE.Vector3());
+    rig.S.copy(A).add(B).multiplyScalar(0.5); clubRig.worldToLocal(rig.S);
+    rig.pivot.position.copy(rig.S); rig.handsNode.position.copy(hands).sub(rig.S);
+    const d = new THREE.Vector3(0, 0.03, behind).sub(rig.S).normalize();
+    rig.n.copy(d).cross(new THREE.Vector3(0, 0, 1)).normalize();     // swing-plane axis: +angle takes the club back and up
+    rig.clubKey = club;
+  }
+}
+function poseRig(anim){
+  const putt = rig.clubKey==='putter', u = rig.golfer.userData;
+  let th, cock, tn;
+  if(putt){ th = anim*0.45; cock = 0; tn = -anim*0.12; }
+  else if(anim >= 0){ th = anim*2.05; cock = Math.min(1, anim*1.5)*1.45; tn = -anim*1.0; }
+  else { const f = Math.min(1, -anim); th = anim*2.5; cock = -Math.min(1, f*1.4)*1.2; tn = f*1.15; }
+  rig.pivot.quaternion.setFromAxisAngle(rig.n, th);
+  rig.hinge.quaternion.setFromAxisAngle(rig.n, cock);
+  u.turn.rotation.y = tn;
+  clubRig.updateMatrixWorld(true);
+  // arms: shoulder → elbow → hands on the grip
+  const g1 = rig.club.localToWorld(_a.set(0, -0.06, 0)).clone(), g2 = rig.club.localToWorld(_b.set(0, -0.15, 0)).clone();
+  clubRig.worldToLocal(g1); clubRig.worldToLocal(g2);
+  const sL = clubRig.worldToLocal(u.shL.getWorldPosition(new THREE.Vector3())), sR = clubRig.worldToLocal(u.shR.getWorldPosition(new THREE.Vector3()));
+  const r = 0.045*(u.look.build || 1);
+  for(const [k, s0, h] of [[0, sL, g1], [2, sR, g2]]){
+    const mid = s0.clone().lerp(h, 0.5); mid.x += 0.03;
+    setLimb(u.arms[k], s0, mid, r*1.15); setLimb(u.arms[k+1], mid, h, r);
+  }
+  u.hands[0].position.copy(g1); u.hands[1].position.copy(g2);
+}
+function sanitizeLook(l){ l = l || {}; const hex = c=>typeof c==='string' && /^#[0-9a-f]{6}$/i.test(c) ? c : null;
+  return {skin:Math.max(0, Math.min(5, l.skin|0)), hair:['short','long','bun','bald','cap'].includes(l.hair) ? l.hair : 'short', hairCol:Math.max(0, Math.min(5, l.hairCol|0)),
+    top:hex(l.top) || '#2a8fd6', bottom:hex(l.bottom) || '#1d2a44', cap:hex(l.cap) || '#ffffff', height:Math.max(0.9, Math.min(1.1, +l.height || 1)), build:Math.max(0.85, Math.min(1.15, +l.build || 1))}; }
+let edClub = 'driver';
+function openEditor(){
+  if(!W) return;
+  $('menuScreen').classList.add('hidden'); $('editorScreen').classList.remove('hidden');
+  state = 'editor'; lie.set(0, W.T(0,0).h + 0.15, 0);
+  try{ $('edName').value = settings.golferName || localStorage.getItem('discgolf-olname') || ''; }catch(e){}
+  renderEditor();
+}
+function setLook(k, v){ settings.look = Object.assign(myLook(), {[k]:v}); try{ localStorage.setItem(SET_KEY, JSON.stringify(settings)); }catch(e){} renderEditor(); }
+function swatches(id, list, cur, key, valOf){
+  const box = $(id); box.innerHTML = '';
+  list.forEach((c,i)=>{ const b = document.createElement('button'); b.style.background = c; const v = valOf ? valOf(c,i) : c; if(v===cur) b.className = 'on'; b.addEventListener('click', ()=>setLook(key, v)); box.appendChild(b); });
+}
+function chips(id, items, cur, onPick){
+  const box = $(id); box.innerHTML = '';
+  items.forEach(([v, label])=>{ const b = document.createElement('button'); b.className = 'chip' + (v===cur ? ' on' : ''); b.textContent = label; b.addEventListener('click', ()=>onPick(v)); box.appendChild(b); });
+}
+function renderEditor(){
+  const L = myLook();
+  swatches('edSkin', SKINS, L.skin, 'skin', (c,i)=>i);
+  chips('edHair', [['short','Short'],['long','Long'],['bun','Bun'],['bald','Bald'],['cap','Cap']], L.hair, v=>setLook('hair', v));
+  swatches('edHairCol', HAIRS, L.hairCol, 'hairCol', (c,i)=>i);
+  $('edCapRow').classList.toggle('hidden', L.hair!=='cap'); swatches('edCap', TOPS, L.cap, 'cap');
+  swatches('edTop', TOPS, L.top, 'top'); swatches('edBottom', BOTTOMS, L.bottom, 'bottom');
+  chips('edHeight', [[0.94,'Short'],[1,'Average'],[1.06,'Tall']], L.height, v=>setLook('height', v));
+  chips('edBuild', [[0.88,'Slim'],[1,'Regular'],[1.12,'Broad']], L.build, v=>setLook('build', v));
+  chips('edClub', [['driver','Driver'],['iron5','5 Iron'],['wedge','Wedge'],['putter','Putter']], edClub, v=>{ edClub = v; renderEditor(); });
+}
+$('golferBtn').addEventListener('click', openEditor);
+$('edName').addEventListener('input', ()=>{ settings.golferName = $('edName').value.trim().slice(0,14); try{ localStorage.setItem(SET_KEY, JSON.stringify(settings)); if(settings.golferName) localStorage.setItem('discgolf-olname', settings.golferName); }catch(e){} });
+$('edDone').addEventListener('click', ()=>{ $('editorScreen').classList.add('hidden'); clubRig.visible = false; state = 'menu'; $('menuScreen').classList.remove('hidden'); });
+function myLook(){ return Object.assign({}, DEFAULT_LOOK, settings.look || {}); }
 let swingAnim = 0;   // 0 = address, + = backswing, then follow-through after impact
 const TRAIL_N = 90;
 const trailGeo = new THREE.BufferGeometry(); trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAIL_N*3), 3));
@@ -995,7 +1168,7 @@ function courseLabel(c){ return c==='shuffle' ? 'Shuffle' : (C.COURSES[c] || C.C
 function roundName(){ const k = settings.round || 'front'; return courseLabel(settings.course || 'classic') + ' · ' + (k==='front' ? 'Front 9' : k==='back' ? 'Back 9' : k==='all' ? 'All 18' : 'Quick 3'); }
 let mode = 'practice', tier = -1, field = [], winds = [], you = null, players = [], cur = 0;
 const PCOL = ['#ff8a1f','#2a8fd6','#3fbf5f','#c75bd6'];
-function mkPlayer(name, i){ return {name, color:PCOL[i%4], scores:[], lie:new THREE.Vector3(), lastLie:new THREE.Vector3(), strokes:0, done:false, lastThrowDist:0}; }
+function mkPlayer(name, i, look){ return {name, color:PCOL[i%4], look:look || (i===0 ? myLook() : presetLook(i)), scores:[], lie:new THREE.Vector3(), lastLie:new THREE.Vector3(), strokes:0, done:false, lastThrowDist:0}; }
 you = mkPlayer('You', 0); players = [you];
 const multi = () => players.length > 1;
 const ord = n => n + (['th','st','nd','rd'][(n%100-20)%10] || ['th','st','nd','rd'][n%100] || 'th');
@@ -1026,7 +1199,7 @@ function startRound(m, k, names, idxs, sport){
   mode = m; tier = m==='tour' ? k : -1;
   const seed = (Date.now() & 0xffffff) ^ 0x5bd1;
   winds = C.holeWinds(tier, seed, RH);
-  players = (names && names.length ? names : ['You']).map(mkPlayer); you = players[0]; cur = 0;
+  players = (names && names.length ? names : ['You']).map((n,i)=>mkPlayer(n, i)); you = players[0]; cur = 0;
   field = mode==='tour' ? C.makeField(tier, seed) : [];
   const r = C.rng(seed + 99);
   for(const p of field) p.scores = RH.map((H,i)=>C.cpuScore(p.skill, H, r, Math.hypot(winds[i].x, winds[i].z)));
@@ -1714,7 +1887,7 @@ function netClose(){
 let wakeLock = null;
 async function keepAwake(){ try{ if(navigator.wakeLock && !wakeLock){ wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', ()=>{ wakeLock = null; }); } }catch(e){} }
 function releaseWake(){ try{ wakeLock && wakeLock.release(); }catch(e){} wakeLock = null; }
-document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && net.client){ keepAwake(); if(net.started) netSend({t:'back'}); else if(!net.host) netSend({t:'hello', name:myName()}); else netSend({t:'lobby', lobby:net.lobby}); } });
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && net.client){ keepAwake(); if(net.started) netSend({t:'back'}); else if(!net.host) netSend({t:'hello', name:myName(), look:myLook()}); else netSend({t:'lobby', lobby:net.lobby}); } });
 
 // connect to a broker; resolves with the client, or null after a timeout
 function connectBroker(i, code){
@@ -1754,7 +1927,7 @@ async function hostGame(){
     if(c){ net.client = c; net.broker = i; break; }
   }
   if(!net.client){ net.host = false; olStatus('Couldn\'t reach the game server. Check your internet connection and try again.'); return; }
-  net.lobby = [{name:myName(), pid:net.id}]; myIdx = 0;
+  net.lobby = [{name:myName(), pid:net.id, look:myLook()}]; myIdx = 0;
   $('olCodeShow').textContent = net.code; $('olStart').classList.add('hidden'); $('olLobby').classList.remove('hidden');
   olStatus('Send the invite, then wait for players to join…'); renderLobby(); keepAwake();
 }
@@ -1770,7 +1943,7 @@ async function joinGame(codeArg, brokerHint){
     if(net.id !== token){ if(c) c.end(true); return; }
     if(!c) continue;
     net.client = c; net.broker = i;
-    netSend({t:'hello', name:myName()});
+    netSend({t:'hello', name:myName(), look:myLook()});
     const ok = await new Promise(res=>{ net.joinTimer = setTimeout(()=>res(false), 6000); net.onLobby = ()=>{ clearTimeout(net.joinTimer); res(true); }; });
     net.onLobby = null;
     if(ok){ keepAwake(); return; }
@@ -1783,7 +1956,7 @@ function onNet(msg){
   if(msg.t==='hello' && net.host){
     if(net.lobby.some(p=>p.pid===msg.from)){ netSend({t:'lobby', lobby:net.lobby}); return; }
     if(net.started || net.lobby.length >= 4){ netSend({t:'full', to:msg.from}); return; }
-    net.lobby.push({name:String(msg.name||'Player').slice(0,14), pid:msg.from});
+    net.lobby.push({name:String(msg.name||'Player').slice(0,14), pid:msg.from, look:sanitizeLook(msg.look)});
     renderLobby(); netSend({t:'lobby', lobby:net.lobby}); olStatus(`${net.lobby.length} players ready`);
     return;
   }
@@ -1828,6 +2001,7 @@ function launchOnline(lobby, round, sport){
   net.started = true; net.lobby = lobby; myIdx = lobby.findIndex(p=>p.pid===net.id);
   $('onlineScreen').classList.add('hidden'); keepAwake();
   startRound('online', -1, lobby.map(p=>p.name), round, net.sport);
+  players.forEach((p,i)=>{ p.look = lobby[i] && lobby[i].look ? sanitizeLook(lobby[i].look) : presetLook(i); });
   saveSession();
 }
 function openOnline(code, hint){
@@ -1878,7 +2052,7 @@ function enterPhase(sn){
 // rebuild an online game from a snapshot (ours from before the refresh, or a newer one from another player)
 function resumeOnline(sn, done){
   mode = 'online'; tier = -1; field = []; applySport(sn.sport || 'disc'); net.sport = sn.sport || 'disc'; if(sn.round) setRound(sn.round); winds = C.holeWinds(-1, 1, RH);
-  players = sn.lobby.map((p,i)=>mkPlayer(p.name, i)); myIdx = sn.lobby.findIndex(p=>p.pid===net.id);
+  players = sn.lobby.map((p,i)=>mkPlayer(p.name, i, p.look ? sanitizeLook(p.look) : presetLook(i))); myIdx = sn.lobby.findIndex(p=>p.pid===net.id);
   $('menuScreen').classList.add('hidden'); $('onlineScreen').classList.add('hidden');
   $('top').classList.remove('hidden'); $('board').classList.remove('hidden');
   const ld = $('loading'); ld.classList.remove('hidden');
@@ -2131,17 +2305,23 @@ function frame(){
   if(GOLF){
     const lining = state==='aim' || state==='flick' || state==='pass' || state==='wait' || state==='motion';
     if(lining && !(state==='wait' && replay)){ const bl = discs.__ball; bl.visible = true; bl.position.set(lie.x, Math.max(lie.y, meshH(lie.x, lie.z)) + 0.065, lie.z); }
-    const showClub = state==='aim' || state==='flick' || state==='motion' || (state==='flight' && flying && flying.t < 0.6);
-    clubRig.visible = showClub;
-    if(showClub){
-      clubRig.position.set(lie.x, Math.max(lie.y, meshH(lie.x, lie.z)), lie.z); clubRig.rotation.y = yaw;
-      // address with the club head just behind the ball
-      clubRig.userData.pivot.position.set(0.05, 1.05, 0.06);
-      let ang = 0;
-      if(state==='flick' && gest) ang = Math.min(2.4, swingAnim*2.4);
-      else if(state==='flight'){ swingAnim = Math.max(-1, swingAnim - dt*6); ang = swingAnim*1.6; }
-      clubRig.userData.pivot.rotation.x = -ang;       // swing back (up) and through
+    const showRig = lining || state==='flight' || state==='roll' || state==='rest' || state==='holed' || state==='scout' || state==='rpause' || state==='replay';
+    clubRig.visible = showRig;
+    if(showRig){
+      const ly = Math.max(lie.y, meshH(lie.x, lie.z));
+      clubRig.position.set(lie.x, ly, lie.z); clubRig.rotation.y = yaw;
+      setRig(you && you.look ? you.look : myLook(), discKey);
+      if(state==='flight' || state==='roll' || state==='rest' || state==='holed' || state==='rpause' || state==='replay') swingAnim = Math.max(-1, swingAnim - dt*5);
+      else if(!(state==='flick' && gest) && state!=='motion') swingAnim += (0 - swingAnim)*Math.min(1, dt*6);
+      poseRig(swingAnim);
     }
+  }
+  if(state==='editor'){
+    clubRig.visible = true; clubRig.position.set(lie.x, Math.max(lie.y, meshH(lie.x, lie.z)), lie.z); clubRig.rotation.y = 0;
+    setRig(myLook(), edClub); poseRig(Math.max(0, Math.sin(U.uTime.value*1.3))*0.35*(edClub==='putter' ? 1 : 0.6));
+    const gx = rig.golfer.position.x;
+    camera.position.set(lie.x + gx + 2.2, lie.y + 1.35, lie.z - 1.3); camera.lookAt(lie.x + gx + 0.2, lie.y + 0.6, lie.z);
+    renderer.render(scene, camera); drawSwipe(dt); return;
   }
 
   // camera
