@@ -2065,7 +2065,7 @@ function bigMapDraw(){
   if(ws > 0.2){ g.save(); g.translate(cx0, cy0); g.rotate(Math.atan2(wx, -wz)); g.fillStyle = '#2a8fd6'; g.strokeStyle = '#14202b'; g.lineWidth = 1.5*d; g.beginPath(); g.moveTo(0, -16*d); g.lineTo(8*d, 0); g.lineTo(3*d, 0); g.lineTo(3*d, 14*d); g.lineTo(-3*d, 14*d); g.lineTo(-3*d, 0); g.lineTo(-8*d, 0); g.closePath(); g.fill(); g.stroke(); g.restore(); }
   txt(`${ws.toFixed(0)} m/s`, cx0, cy0 + 40*d, '#fff', 12);
   $('bigMapInfo').innerHTML = `<b>${esc(gearName(discKey))}</b>: dashed ring = best case, ~${M.total.toFixed(0)} m${GOLF && discKey!=='putter' ? ` (${M.carry.toFixed(0)} carry)` : ''} on open flat ground` + (!GOLF && capPred.pt ? `<br><span style="color:#b8860b">●</span> Yellow = your ${Math.round(powerCap*100)}% throw on this line: <b>${capPred.d.toFixed(0)} m</b>${capPred.hit && capPred.res!=='in' ? `, clips ${capPred.hit.what}` : ''}` : '') +
-    (big.powNote && !GOLF && big.aim ? `<br><b style="color:#b8860b">${esc(big.powNote)}</b>` : '') + `<br>${canAimOnMap() ? (GOLF ? '👆 Tap or drag on the map to aim' : '👆 Tap where you want it to land: sets aim and power') : 'Map view'} · ${distToBasket(lie).toFixed(0)} m to the ${GOLF ? 'hole' : 'basket'}`;
+    (big.powNote && !GOLF && big.aim ? `<br><b style="color:#b8860b">${esc(big.powNote)}</b>` : '') + `<br>${canAimOnMap() ? (GOLF ? '👆 Tap to aim · drag anywhere to fine-tune' : '👆 Tap where you want it to land · drag anywhere to fine-tune') : 'Map view'} · ${distToBasket(lie).toFixed(0)} m to the ${GOLF ? 'hole' : 'basket'}`;
 }
 function openBigMap(){
   if(!W || !mapTf || state==='menu') return;
@@ -2074,10 +2074,10 @@ function openBigMap(){
   if(big.hole !== W || !big.img) requestAnimationFrame(()=>{ bigMapBuild(); bigMapDraw(); }); else bigMapDraw();
 }
 function closeBigMap(){ big.open = false; $('bigMapScreen').classList.add('hidden'); }
-function bigMapAim(e){
+function bigMapAim(e, at){
   if(!canAimOnMap() || !big.tf) return;
   const cv = $('bigMap'), r = cv.getBoundingClientRect(), k = cv.width/r.width;
-  const [x, z] = big.tf.inv((e.clientX - r.left)*k, (e.clientY - r.top)*k);
+  const [x, z] = at || big.tf.inv((e.clientX - r.left)*k, (e.clientY - r.top)*k);
   if(Math.hypot(x - lie.x, z - lie.z) < 3) return;
   yaw = Math.atan2(-(x - lie.x), -(z - lie.z)); big.aim = {x, z}; prevKey = '';
   if(!GOLF){ const now = performance.now(); if(e.type!=='pointermove' || now - (big.powT || 0) > 160){ big.powT = now; powerForPoint(x, z); } }
@@ -2096,8 +2096,26 @@ function powerForPoint(x, z){
 }
 $('map').addEventListener('click', e=>{ e.stopPropagation(); openBigMap(); });
 $('map').addEventListener('pointerdown', e=>e.stopPropagation());
-$('bigMap').addEventListener('pointerdown', e=>{ e.preventDefault(); e.stopPropagation(); try{ $('bigMap').setPointerCapture(e.pointerId); }catch(err){} bigMapAim(e); });
-$('bigMap').addEventListener('pointermove', e=>{ if(e.buttons) bigMapAim(e); });
+// a quick tap jumps the crosshair to that spot; dragging moves it like a trackpad (at half speed), so your finger never hides it
+let mapDrag = null;
+$('bigMap').addEventListener('pointerdown', e=>{ e.preventDefault(); e.stopPropagation(); try{ $('bigMap').setPointerCapture(e.pointerId); }catch(err){}
+  if(!canAimOnMap() || !big.tf) return;
+  let start = big.aim;
+  if(!start){ const d0 = capPred.pt && !GOLF ? Math.hypot(capPred.pt.x - lie.x, capPred.pt.z - lie.z) : Math.min(60, distToBasket(lie)); start = {x:lie.x - Math.sin(yaw)*d0, z:lie.z - Math.cos(yaw)*d0}; }
+  mapDrag = {x0:e.clientX, y0:e.clientY, ax:start.x, az:start.z, moved:false};
+});
+$('bigMap').addEventListener('pointermove', e=>{
+  if(!mapDrag || !e.buttons) return;
+  const dx = e.clientX - mapDrag.x0, dy = e.clientY - mapDrag.y0;
+  if(!mapDrag.moved && Math.hypot(dx, dy) < 8) return;
+  mapDrag.moved = true;
+  const cv = $('bigMap'), k = cv.width/cv.getBoundingClientRect().width, s = big.tf.s;
+  bigMapAim(e, [mapDrag.ax + dx*k*0.5/s, mapDrag.az + dy*k*0.5/s]);
+});
+const endMapDrag = e=>{ if(!mapDrag) return; const m = mapDrag; mapDrag = null;
+  if(!m.moved){ bigMapAim(e); return; }
+  if(big.aim && !GOLF){ big.powT = 0; powerForPoint(big.aim.x, big.aim.z); updateCapPred(0); bigMapDraw(); } };
+$('bigMap').addEventListener('pointerup', endMapDrag); $('bigMap').addEventListener('pointercancel', e=>{ mapDrag = null; });
 $('bigMapDone').addEventListener('click', closeBigMap);
 let bigMapT = 0;
 function drawMap(){
