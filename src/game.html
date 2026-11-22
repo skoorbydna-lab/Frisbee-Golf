@@ -58,10 +58,12 @@
   .lb td:first-child{border-radius:8px 0 0 8px;width:34px;text-align:center;font-weight:700}
   .lb td:last-child{border-radius:0 8px 8px 0;text-align:right}
   .lb td.rel{font-weight:700;text-align:right;width:44px}
-  #statsCard{position:fixed;left:50%;transform:translateX(-50%);top:calc(196px + env(safe-area-inset-top));width:min(94vw,420px);background:rgba(255,248,232,.97);border:3px solid var(--ink);border-radius:14px;box-shadow:0 3px 0 var(--ink);padding:7px 10px;font-size:13.5px;font-weight:500;line-height:1.35;pointer-events:auto}
+  #statsCard{position:fixed;left:10px;top:calc(176px + env(safe-area-inset-top));width:calc(100% - 132px);max-width:340px;background:rgba(255,248,232,.97);border:3px solid var(--ink);border-radius:14px;box-shadow:0 3px 0 var(--ink);padding:7px 10px;font-size:13px;font-weight:500;line-height:1.35;pointer-events:auto}
   #statsCard .srow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   #statsCard .sbar{display:inline-block;width:70px;height:8px;border:2px solid var(--ink);border-radius:6px;overflow:hidden;background:#fff;vertical-align:middle}
   #statsCard .sbar i{display:block;height:100%}
+  #statsCard.compact .det{display:none}
+  #statsCard .more{float:right;font-size:11px;opacity:.6;font-weight:600}
   #statsCard .stip{margin-top:4px;padding-top:4px;border-top:2px dashed rgba(20,32,43,.3);font-weight:600}
   body.busy #discRow, body.busy #motionRow, body.busy #clubRow, body.busy #rangeRow, body.busy #hint{display:none!important}
   .edrow{margin-top:8px} .edrow b{display:block;font-size:13px;margin-bottom:3px}
@@ -82,7 +84,7 @@
   <div id="left">
     <div class="pill" id="info"><b id="holeName">Hole 1</b><br><span id="holeMeta">Par 3 · Throw 1</span><div id="dist">—</div></div>
     <div class="pill" id="board">You E</div>
-    <div style="display:flex;gap:6px"><button class="pill" id="menuBtn">☰ Menu</button><button class="pill" id="scoutBtn" style="pointer-events:auto;font:600 13px Fredoka,sans-serif;color:var(--ink);padding:4px 10px">🔭 Scout</button></div>
+    <div style="display:flex;gap:6px"><button class="pill" id="menuBtn">☰ Menu</button><button class="pill hidden" id="statsBtn" style="pointer-events:auto;font:600 13px Fredoka,sans-serif;color:var(--ink);padding:4px 10px">📊</button><button class="pill" id="scoutBtn" style="pointer-events:auto;font:600 13px Fredoka,sans-serif;color:var(--ink);padding:4px 10px">🔭 Scout</button></div>
   </div>
   <div id="right">
     <div class="pill" id="wind"><svg id="arrow" viewBox="0 0 24 24"><path d="M12 2 L19 14 H14 V22 H10 V14 H5 Z" fill="#2a8fd6" stroke="#14202b" stroke-width="2" stroke-linejoin="round"/></svg><div><span id="windTxt">0 m/s</span><small id="gustTxt"></small></div></div>
@@ -471,8 +473,8 @@ const discPin = (()=>{ const cv = document.createElement('canvas'); cv.width = c
 // ================= golfer + clubs =================
 // rig frame: origin at the ball, -z towards the target, the (right-handed) golfer stands on the -x side facing +x
 const CLUB_SPEC = {
-  driver:{len:1.12, lie:56, loft:11, kind:'wood'}, iron5:{len:0.98, lie:61, loft:24, kind:'iron'},
-  iron9:{len:0.92, lie:63.5, loft:40, kind:'iron'}, wedge:{len:0.9, lie:64, loft:54, kind:'iron'}, putter:{len:0.86, lie:71, loft:3, kind:'putter'}
+  driver:{len:1.12, lie:47, loft:11, kind:'wood'}, iron5:{len:0.98, lie:52, loft:24, kind:'iron'},
+  iron9:{len:0.92, lie:55, loft:40, kind:'iron'}, wedge:{len:0.9, lie:56, loft:54, kind:'iron'}, putter:{len:0.86, lie:68, loft:3, kind:'putter'}
 };
 const SKINS = ['#f6d5b8','#eab893','#cf9469','#a96d47','#7d4b2c','#4f301d'];
 const HAIRS = ['#1d1a18','#4a2f1c','#8a5a2b','#d9b26a','#b9b9b9','#c8442f'];
@@ -559,9 +561,8 @@ function setRig(look, club){
     // sweet spot of the face just behind the ball: shift the whole club (and hands) toward the heel and back from the target
     const lie = sp.lie*Math.PI/180, sweet = sp.kind==='wood' ? 0.058 : 0.046, behind = sp.kind==='wood' ? 0.1 : sp.kind==='putter' ? 0.075 : 0.07;
     const hands = new THREE.Vector3(-sp.len*Math.cos(lie) - sweet, sp.len*Math.sin(lie) + 0.015, behind - 0.03);
-    // stand so the arms hang naturally (~0.58 m shoulder to hands, scaled with height)
-    const armL = 0.58*hs, dy = 1.36*hs - hands.y;
-    rig.golfer.position.set(hands.x - 0.262*hs - Math.sqrt(Math.max(0.01, armL*armL - dy*dy)), 0, 0.0);
+    // stand so the shoulders are just behind the hands: the arms hang almost straight down
+    rig.golfer.position.set(hands.x - 0.07*hs - 0.262*hs, 0, 0.0);
     // swing centre = between the shoulders at address
     rig.golfer.userData.turn.rotation.set(0,0,0); clubRig.updateMatrixWorld(true);
     const A = rig.golfer.userData.shL.getWorldPosition(new THREE.Vector3()), B = rig.golfer.userData.shR.getWorldPosition(new THREE.Vector3());
@@ -588,7 +589,7 @@ function poseRig(anim){
   const sL = G.worldToLocal(u.shL.getWorldPosition(new THREE.Vector3())), sR = G.worldToLocal(u.shR.getWorldPosition(new THREE.Vector3()));
   const r = 0.045*(u.look.build || 1);
   for(const [k, s0, h] of [[0, sL, g1], [2, sR, g2]]){
-    const mid = s0.clone().lerp(h, 0.5); mid.x += 0.02;
+    const mid = s0.clone().lerp(h, 0.5); mid.x -= 0.025;
     setLimb(u.arms[k], s0, mid, r*1.15); setLimb(u.arms[k+1], mid, h, r);
   }
   u.hands[0].position.copy(g1); u.hands[1].position.copy(g2);
@@ -999,13 +1000,15 @@ function makeBasket(){
 }
 function makeTee(n, par, len){
   const g = new THREE.Group();
-  const pad = outlined(new THREE.BoxGeometry(2.4,0.3,4.5), '#d9d2c3', 0.02, {receive:true}); pad.position.set(0, 0.0, 1.2); g.add(pad);
+  if(GOLF){ for(const x of [-1.6, 1.6]){ const m = outlined(new THREE.SphereGeometry(0.09, 14, 10), '#ffffff', 0.08, {mat:bright(x < 0 ? '#ff2a1a' : '#ffffff', 0.3)}); m.position.set(x, 0.06, -0.5); g.add(m); } }
+  else { const pad = outlined(new THREE.BoxGeometry(2.4,0.3,4.5), '#d9d2c3', 0.02, {receive:true}); pad.position.set(0, 0.0, 1.2); g.add(pad); }
   const cv = document.createElement('canvas'); cv.width = 256; cv.height = 160; const x = cv.getContext('2d');
   x.fillStyle = '#ff8a1f'; x.fillRect(0,0,256,160); x.fillStyle = '#fff'; x.textAlign = 'center';
   x.font = '700 64px Fredoka, sans-serif'; x.fillText(n, 128, 70); x.font = '600 30px Fredoka, sans-serif'; x.fillText(typeof par==='string' ? par : `Par ${par} · ${len} m`, 128, 128);
-  const sign = outlined(new THREE.BoxGeometry(0.95,0.6,0.06), '#ff8a1f', 0.06); sign.position.set(-2.2, 1.15, 1.5); g.add(sign);
+  const sx = GOLF ? 2.8 : -2.2;
+  const sign = outlined(new THREE.BoxGeometry(0.95,0.6,0.06), '#ff8a1f', 0.06); sign.position.set(sx, 1.15, 1.5); g.add(sign);
   const face = new THREE.Mesh(new THREE.PlaneGeometry(0.93,0.58), new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(cv)})); face.position.z = -0.032; face.rotation.y = Math.PI; sign.add(face);
-  const post = outlined(new THREE.CylinderGeometry(0.04,0.04,1.1,6), '#8a5a35', 0.2); post.position.set(-2.2, 0.55, 1.55); g.add(post);
+  const post = outlined(new THREE.CylinderGeometry(0.04,0.04,1.1,6), '#8a5a35', 0.2); post.position.set(sx, 0.55, 1.55); g.add(post);
   return g;
 }
 
@@ -1708,15 +1711,15 @@ function showGolfStats(kind){
   else if(Math.abs(sw.angle) > 10) tip = `Your swing went ${sw.angle > 0 ? 'right' : 'left'} across the ball, so it ${sw.angle > 0 ? 'sliced' : 'hooked'}. Swipe straight up the screen for a straight shot.`;
   else tip = `Nice strike. ${gearName(L.disc)} at ${(sw.power*100).toFixed(0)}% power.`;
   $('statsCard').innerHTML = `
-    <div class="srow"><b>Power ${(sw.power*100).toFixed(0)}%</b> ${bar(sw.power,'#ff8a1f')} ${gearName(L.disc)}</div>
-    <div class="srow">Backswing ${bar(sw.back,'#3fbf5f')} ${(sw.back*100).toFixed(0)}%</div>
-    ${sw.motion ? `<div class="srow">📱 Swing speed ${Math.round(sw.peak)} °/s${settings.gentle ? ' (gentle)' : ''}</div>` : sw.putt ? '' : `<div class="srow">Tempo ${bar(sw.tempo,'#2a8fd6')} ${sw.speedV.toFixed(1)} screens/s</div>`}
+    <div class="srow"><span class="more">tap for more ▾</span><b>Power ${(sw.power*100).toFixed(0)}%</b> ${bar(sw.power,'#ff8a1f')} ${gearName(L.disc)}</div>
+    <div class="srow det">Backswing ${bar(sw.back,'#3fbf5f')} ${(sw.back*100).toFixed(0)}%</div>
+    ${sw.motion ? `<div class="srow det">📱 Swing speed ${Math.round(sw.peak)} °/s${settings.gentle ? ' (gentle)' : ''}</div>` : sw.putt ? '' : `<div class="srow det">Tempo ${bar(sw.tempo,'#2a8fd6')} ${sw.speedV.toFixed(1)} screens/s</div>`}
     <div class="srow">Shot shape: <b>${shape}</b>${sw.putt || kind==='chains' ? '' : ` · finished ${Math.abs(side) < 1.5 ? 'on your line' : `${Math.abs(side).toFixed(0)} m ${side > 0 ? 'right' : 'left'} of your aim`}`}</div>
     <div class="srow"><b>${res}</b></div>
-    ${sw.putt ? '' : `<div class="srow">${Math.max(0, (F.maxY ?? L.sy) - L.sy).toFixed(0)} m high · ${F.bounces||0} bounce${(F.bounces||0)===1?'':'s'}</div>`}
+    ${sw.putt ? '' : `<div class="srow det">${Math.max(0, (F.maxY ?? L.sy) - L.sy).toFixed(0)} m high · ${F.bounces||0} bounce${(F.bounces||0)===1?'':'s'}</div>`}
     <div class="stip">💡 ${tip}</div>`;
-  $('statsCard').classList.remove('hidden');
-  statsTimer = mode==='range' ? 0 : 5;
+  $('statsCard').classList.add('compact'); $('statsCard').classList.remove('hidden'); $('statsBtn').classList.remove('hidden');
+  statsTimer = mode==='range' ? 9 : 6;
   if(mode==='range' && kind!=='ob' && !sw.putt){
     if(!range.longest || total > range.longest.d){ range.longest = {d:total, disc:L.disc, x:end.x, z:end.z}; placeLongFlag(); }
     const k = L.disc; if(!range.best[k] || total > range.best[k]) range.best[k] = total; saveRange();
@@ -1751,15 +1754,15 @@ function showStats(kind){
   const drift = Math.abs(side) < 1.5 ? 'dead straight' : `${Math.abs(side).toFixed(0)} m ${side < 0 ? 'left' : 'right'}`;
   const bar = (v,c)=>`<span class="sbar"><i style="width:${(v*100).toFixed(0)}%;background:${c}"></i></span>`;
   $('statsCard').innerHTML = `
-    <div class="srow"><b>Power ${(f.power*100).toFixed(0)}%</b> ${bar(f.power,'#ff8a1f')}</div>
-    <div class="srow">Speed ${bar(f.speedP,'#2a8fd6')} ${f.speedV.toFixed(1)} screens/s</div>
-    <div class="srow">Length ${bar(f.lengthP,'#3fbf5f')} ${(f.lenFrac*100).toFixed(0)}% of screen</div>
-    <div class="srow">${tiltTxt} · launch ${L.launchDeg.toFixed(0)}° · aim ${Math.abs(L.aimDeg) < 1 ? 'straight' : Math.abs(L.aimDeg).toFixed(0) + '° ' + (L.aimDeg > 0 ? 'right' : 'left')} · ${gearName(L.disc)}</div>
+    <div class="srow"><span class="more">tap for more ▾</span><b>Power ${(f.power*100).toFixed(0)}%</b> ${bar(f.power,'#ff8a1f')}</div>
+    <div class="srow det">Speed ${bar(f.speedP,'#2a8fd6')} ${f.speedV.toFixed(1)} screens/s</div>
+    <div class="srow det">Length ${bar(f.lengthP,'#3fbf5f')} ${(f.lenFrac*100).toFixed(0)}% of screen</div>
+    <div class="srow det">${tiltTxt} · launch ${L.launchDeg.toFixed(0)}° · aim ${Math.abs(L.aimDeg) < 1 ? 'straight' : Math.abs(L.aimDeg).toFixed(0) + '° ' + (L.aimDeg > 0 ? 'right' : 'left')} · ${gearName(L.disc)}</div>
     <div class="srow"><b>${res}</b></div>
     <div class="srow">${drift} · ${Math.max(0, (F.maxY ?? L.sy) - L.sy + 1.5).toFixed(0)} m high · ${land}</div>
     <div class="stip">💡 ${flickTip(L, R)}</div>`;
-  $('statsCard').classList.remove('hidden');
-  statsTimer = mode==='range' ? 0 : 5;
+  $('statsCard').classList.add('compact'); $('statsCard').classList.remove('hidden'); $('statsBtn').classList.remove('hidden');
+  statsTimer = mode==='range' ? 9 : 6;
   if(mode==='range' && kind!=='ob' && (!range.longest || total > range.longest.d)){
     range.longest = {d:total, disc:L.disc, x:end.x, z:end.z};
     placeLongFlag(); if(range.n > 0) setTimeout(()=>flash(`New longest throw! 🏆<br><span style="font-size:20px">${total.toFixed(0)} m</span>`, 1.6), 1300);
@@ -1921,7 +1924,8 @@ function renderRangeBtns(){
 $('rangeBtn').addEventListener('click', startRange);
 $('rWind').addEventListener('click', ()=>{ range.wind = (range.wind + 1) % 3; const sp = [0, 3, 7][range.wind], a = Math.random()*Math.PI*2; winds = [{x:Math.sin(a)*sp, z:Math.cos(a)*sp}]; renderRangeBtns(); });
 $('rFrom').addEventListener('click', ()=>{ range.from = range.from==='tee' ? 'lie' : 'tee'; if(range.from==='tee' && (state==='aim')){ lie.set(0, W.T(0,0).h + 0.15, 0); faceBasket(); } renderRangeBtns(); });
-$('statsCard').addEventListener('click', ()=>$('statsCard').classList.add('hidden'));
+$('statsCard').addEventListener('click', ()=>{ const c = $('statsCard'); c.classList.toggle('compact'); statsTimer = c.classList.contains('compact') ? 6 : 0; });
+$('statsBtn').addEventListener('click', ()=>{ const c = $('statsCard'); if(!c.innerHTML) return; if(c.classList.contains('hidden')){ c.classList.remove('hidden'); c.classList.add('compact'); statsTimer = 0; } else c.classList.add('hidden'); });
 let localN = 2, localNames = (()=>{ try{ return JSON.parse(localStorage.getItem('discgolf-names')) || []; }catch(e){ return []; } })();
 function renderSetup(){
   document.querySelectorAll('[data-n]').forEach(b=>b.classList.toggle('on', +b.dataset.n===localN));
