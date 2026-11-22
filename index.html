@@ -2020,7 +2020,10 @@ function bigMapDraw(){
   const T = targetOf(lie), [tx, ty] = f(T.x, T.z); txt(`${distToBasket(lie).toFixed(0)} m`, tx, ty - 11*d, '#ffd9c9');
   // other players
   if(multi()) players.forEach((p,i)=>{ if(i===cur || p.done) return; const [px,py] = f(p.lie.x, p.lie.z); g.fillStyle = p.color; g.strokeStyle = '#14202b'; g.lineWidth = 1.5*d; g.beginPath(); g.arc(px, py, 5*d, 0, 7); g.fill(); g.stroke(); });
-  if(!GOLF && capPred.pt && capActive()){ const [px, py] = f(capPred.pt.x, capPred.pt.z); g.strokeStyle = '#ffd23f'; g.lineWidth = 3*d; g.beginPath(); g.arc(px, py, 8*d, 0, 7); g.stroke();
+  if(!GOLF && capPred.pt && capActive()){ const [px, py] = f(capPred.pt.x, capPred.pt.z);
+    if(capPred.path){ g.strokeStyle = 'rgba(255,210,63,.95)'; g.lineWidth = 2.5*d; g.setLineDash([5*d, 4*d]); g.beginPath(); capPred.path.forEach((q,i)=>{ const [x,y] = f(q[0], q[1]); i ? g.lineTo(x,y) : g.moveTo(x,y); }); g.stroke(); g.setLineDash([]); }
+    if(capPred.hit && capPred.res!=='in'){ const [hx, hy] = f(capPred.hit.x, capPred.hit.z); g.strokeStyle = '#ff3b2f'; g.lineWidth = 3.5*d; g.beginPath(); g.moveTo(hx-7*d, hy-7*d); g.lineTo(hx+7*d, hy+7*d); g.moveTo(hx+7*d, hy-7*d); g.lineTo(hx-7*d, hy+7*d); g.stroke(); txt(`hits ${capPred.hit.what}`, hx, hy - 12*d, '#ff9b8a', 12); }
+    g.strokeStyle = '#ffd23f'; g.lineWidth = 3*d; g.beginPath(); g.arc(px, py, 8*d, 0, 7); g.stroke();
     txt(`${Math.round(powerCap*100)}% · ${capPred.d.toFixed(0)} m`, px, py + 22*d, '#ffd23f'); }
   // your aim point
   if(big.aim){ const [ax, ay] = f(big.aim.x, big.aim.z), dd = Math.hypot(big.aim.x - lie.x, big.aim.z - lie.z);
@@ -2033,7 +2036,7 @@ function bigMapDraw(){
   g.fillStyle = 'rgba(255,255,255,.85)'; g.beginPath(); g.arc(cx0, cy0, 24*d, 0, 7); g.fill();
   if(ws > 0.2){ g.save(); g.translate(cx0, cy0); g.rotate(Math.atan2(wx, -wz)); g.fillStyle = '#2a8fd6'; g.strokeStyle = '#14202b'; g.lineWidth = 1.5*d; g.beginPath(); g.moveTo(0, -16*d); g.lineTo(8*d, 0); g.lineTo(3*d, 0); g.lineTo(3*d, 14*d); g.lineTo(-3*d, 14*d); g.lineTo(-3*d, 0); g.lineTo(-8*d, 0); g.closePath(); g.fill(); g.stroke(); g.restore(); }
   txt(`${ws.toFixed(0)} m/s`, cx0, cy0 + 40*d, '#fff', 12);
-  $('bigMapInfo').innerHTML = `<b>${esc(gearName(discKey))}</b>: up to ~${M.total.toFixed(0)} m${GOLF && discKey!=='putter' ? ` (${M.carry.toFixed(0)} carry)` : ''} with a full, straight ${GOLF ? 'swing' : 'flick'} in still air` +
+  $('bigMapInfo').innerHTML = `<b>${esc(gearName(discKey))}</b>: dashed ring = best case, ~${M.total.toFixed(0)} m${GOLF && discKey!=='putter' ? ` (${M.carry.toFixed(0)} carry)` : ''} on open flat ground` + (!GOLF && capPred.pt ? `<br><span style="color:#b8860b">●</span> Yellow = your ${Math.round(powerCap*100)}% throw on this line: <b>${capPred.d.toFixed(0)} m</b>${capPred.hit && capPred.res!=='in' ? `, clips ${capPred.hit.what}` : ''}` : '') +
     `<br>${canAimOnMap() ? '👆 Tap or drag on the map to aim' : 'Map view'} · ${distToBasket(lie).toFixed(0)} m to the ${GOLF ? 'hole' : 'basket'}`;
 }
 function openBigMap(){
@@ -2373,17 +2376,28 @@ function simDisc(key, speed){
   const D = C.DISCS[key] || C.DISCS.driver, lp = Math.max(-0.05, Math.min(0.85, pitch + relPitch + 0.1));
   const p0 = {x:lie.x - Math.sin(yaw)*0.6, y:lie.y + eyeH - 0.25, z:lie.z - Math.cos(yaw)*0.6}; p0.y = Math.max(C.surface(W, p0.x, p0.z, p0.y + 1).s + 0.3, p0.y);
   const f = C.newFlight({x:p0.x, y:p0.y, z:p0.z}, {x:-Math.sin(yaw)*Math.cos(lp)*speed, y:Math.sin(lp)*speed, z:-Math.cos(yaw)*Math.cos(lp)*speed}, 0);
-  const ev0 = W.events.length; let st = 'flight', res = null;
-  for(let i=0;i<2400;i++){ const e = st==='flight' ? C.stepFlight(W, f, D, 1/60) : C.stepRoll(W, f, 1/60); if(e==='land'){ st = 'roll'; continue; } if(e){ res = e; break; } }
-  W.events.length = ev0;
-  return {res, x:f.pos.x, z:f.pos.z, d:Math.hypot(f.pos.x - lie.x, f.pos.z - lie.z)};
+  const ev0 = W.events.length; let st = 'flight', res = null, hit = null; const path = [[f.pos.x, f.pos.z]];
+  for(let i=0;i<2400;i++){
+    const e = st==='flight' ? C.stepFlight(W, f, D, 1/60) : C.stepRoll(W, f, 1/60);
+    if(i % 3 === 0) path.push([f.pos.x, f.pos.z]);
+    if(!hit && st==='flight' && W.events.length > ev0){            // first thing it clips in the air
+      const k = W.events.slice(ev0).find(x=>x==='thunk' || x==='leaves' || x==='clank');
+      if(k){ const nearTree = W.trees.some(t=>Math.hypot(t.x - f.pos.x, t.z - f.pos.z) < 4);
+        const ty = W.T(f.pos.x, f.pos.z).type;
+        hit = {x:f.pos.x, z:f.pos.z, d:Math.hypot(f.pos.x - lie.x, f.pos.z - lie.z), what:k==='leaves' || nearTree ? 'a tree' : (ty==='rock' || ty==='stone' || H_CANYON()) ? 'the canyon wall' : 'the rocks'}; }
+    }
+    if(e==='land'){ st = 'roll'; continue; } if(e){ res = e; break; }
+  }
+  W.events.length = ev0; path.push([f.pos.x, f.pos.z]);
+  return {res, hit, path, x:f.pos.x, z:f.pos.z, d:Math.hypot(f.pos.x - lie.x, f.pos.z - lie.z)};
 }
+function H_CANYON(){ const h = mode!=='range' && RH[holeIdx]; return !!h && (h.group==='canyon' || h.theme==='canyon' || h.theme==='gorge'); }
 function capSpeed(key, cap){ const D = C.DISCS[key] || C.DISCS.driver; return D.max*(0.3 + 0.7*cap); }
 $('capSlider').addEventListener('input', e=>{ setCap(+e.target.value/100, false); });
 ['pointerdown','touchstart'].forEach(t=>$('capSlider').addEventListener(t, e=>e.stopPropagation()));
 function renderCap(){
   const pc = Math.round(powerCap*100); $('capSlider').value = pc;
-  $('capTxt').innerHTML = `Power <b>${pc}%</b>` + (capPred.pt ? ` · full flick ≈ <b>${capPred.d.toFixed(capPred.d < 20 ? 1 : 0)} m</b>` + (capPred.res==='in' ? ' 🎯' : '') : '');
+  $('capTxt').innerHTML = `Power <b>${pc}%</b>` + (capPred.pt ? ` · full flick ≈ <b>${capPred.d.toFixed(capPred.d < 20 ? 1 : 0)} m</b>` + (capPred.res==='in' ? ' 🎯' : capPred.res && capPred.res.startsWith('ob') ? ' ⚠ OB' : '') + (capPred.hit && capPred.res!=='in' ? ` · <span style="color:#c0392b">clips ${capPred.hit.what} at ${capPred.hit.d.toFixed(0)} m</span>` : '') : '');
 }
 function setCap(c, auto){ powerCap = Math.max(0.1, Math.min(1, c)); capAuto = !!auto; capPred.key = ''; renderCap(); }
 // at each new turn: 100%, except with the putter near the basket, where it picks the power that reaches the chains
@@ -2401,7 +2415,7 @@ function updateCapPred(dt){
   const key = [lie.x.toFixed(1), lie.z.toFixed(1), yaw.toFixed(2), pitch.toFixed(2), discKey, powerCap, Math.round(W.wind.x*2), Math.round(W.wind.z*2)].join('|');
   if(key !== capPred.key || capPred.t <= 0){
     capPred.key = key; capPred.t = 0.7;
-    const r = simDisc(discKey, capSpeed(discKey, powerCap)); capPred.pt = {x:r.x, z:r.z}; capPred.d = r.d; capPred.res = r.res;
+    const r = simDisc(discKey, capSpeed(discKey, powerCap)); capPred.pt = {x:r.x, z:r.z}; capPred.d = r.d; capPred.res = r.res; capPred.hit = r.hit; capPred.path = r.path;
     renderCap();
   }
   prevRing.position.set(capPred.pt.x, meshH(capPred.pt.x, capPred.pt.z) + 0.06, capPred.pt.z); prevRing.visible = true;
