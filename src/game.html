@@ -1908,7 +1908,7 @@ function analyseSwing(g){
   return {power, back, tempo, speedV:vy, angle, putt};
 }
 function strike(sw){
-  throwPath = []; recT = 0; recAcc = 1;
+  throwPath = []; recT = 0; recAcc = 1; liveSent = 0; liveAcc = 0;
   strokes++; lastLie.copy(lie);
   const K = C.CLUBS[discKey] || C.CLUBS.driver; power = sw.power;
   const speed = shotSpeed(K, power, sw.putt);
@@ -1942,7 +1942,7 @@ function drawSwipe(dt){
 }
 
 function doThrow(f){
-  throwPath = []; recT = 0; recAcc = 1;
+  throwPath = []; recT = 0; recAcc = 1; liveSent = 0; liveAcc = 0;
   strokes++; lastLie.copy(lie);
   const D = C.DISCS[discKey];
   // a full flick (about 85% of the strongest) gives exactly the selected power
@@ -2487,7 +2487,7 @@ function moveToLie(){
 }
 
 // ================= online play (MQTT relay: works on any network) =================
-let myIdx = 0, throwPath = null, recT = 0, recAcc = 0, netQueue = [], replay = null;
+let myIdx = 0, throwPath = null, recT = 0, recAcc = 0, netQueue = [], replay = null, liveSent = 0, liveAcc = 0;
 const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
 const CODE_CH = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const net = {client:null, host:false, id:'', code:'', topic:'', broker:0, lobby:[], started:false, away:{}, joinTimer:null};
@@ -2495,7 +2495,7 @@ function newId(){ return Array.from({length:10}, ()=>'abcdefghijkmnopqrstuvwxyz2
 function olStatus(t){ $('olStatus').textContent = t; }
 function libReady(){ if(window.mqtt) return true; olStatus('Online play needs the GitHub Pages version of the game (it can\'t connect from inside Claude).'); return false; }
 function myName(){ const n = $('olName').value.trim() || 'Player'; try{ localStorage.setItem('discgolf-olname', n); }catch(e){} return n.slice(0,14); }
-function netSend(msg){ if(!net.client) return; msg.from = net.id; try{ net.client.publish(net.topic, JSON.stringify(msg), {qos:1}); }catch(e){} }
+function netSend(msg, qos){ if(!net.client) return; msg.from = net.id; try{ net.client.publish(net.topic, JSON.stringify(msg), {qos:qos ?? 1}); }catch(e){} }
 function netClose(){
   clearTimeout(net.joinTimer);
   if(net.client){ try{ net.client.publish(net.topic, JSON.stringify({t:'bye', from:net.id}), {qos:1}); }catch(e){} const c = net.client; setTimeout(()=>{ try{ c.end(true); }catch(e){} }, 300); }
@@ -2611,7 +2611,10 @@ function onNet(msg){
     if(state==='wait' && cur===msg.idx) continueAfterRemote();
     return;
   }
-  if(msg.t==='throw'){ if(msg.n && msg.n <= (net.seq||0)) return; netQueue.push(msg); processQueue(); }
+  if(msg.t==='live'){ onLive(msg); return; }
+  if(msg.t==='throw'){ if(msg.n && msg.n <= (net.seq||0)) return;
+    if(replay && replay.live && replay.seq===msg.n){ upgradeLive(msg); return; }
+    netQueue.push(msg); processQueue(); }
   if(msg.t==='syncreq'){ if(players.length && net.started) netSend({t:'sync', to:msg.from, snap:makeSnap()}); return; }
   if(msg.t==='sync'){ if(msg.to===net.id) applySync(msg.snap); return; }
 }
@@ -2773,10 +2776,38 @@ function processQueue(){
   if(settings.autoSkip) return skipReplay();
   $('skipBar').classList.remove('hidden');
 }
+// ---- live view: the thrower streams the disc's path while it flies; we play it a moment behind ----
+function onLive(m){
+  if(settings.autoSkip || m.hole!==holeIdx || m.idx!==cur) return;
+  if(m.seq <= (net.seq||0)) return;
+  if(replay && replay.live && replay.seq===m.seq){       // more of the same throw
+    const P = replay.m.path; if(m.from0 >= P.length) for(const q of m.pts) P.push(q); else if(m.from0 + m.pts.length > P.length) for(const q of m.pts.slice(P.length - m.from0)) P.push(q);
+    return;
+  }
+  if(state==='scout' && scout.prev==='wait') exitScout();
+  if(state!=='wait' || replay) return;
+  $('waitBar').classList.add('hidden');
+  discKey = GOLF ? (C.CLUBS[m.disc] ? m.disc : 'driver') : (m.disc in discs ? m.disc : 'driver');
+  showFlyer(discKey);
+  const p0 = m.pts[0];
+  flying = C.newFlight({x:p0[1], y:p0[2], z:p0[3]}, {x:0, y:0, z:0}, 0);
+  flying.t = 5; flying.hit = true;
+  chase.pos.set(lie.x, lie.y + eyeH, lie.z); chase.dir = null;
+  replay = {m:{path:m.pts.slice(), live:true}, t:-0.25, k:0, live:true, seq:m.seq};
+  trailPts = []; state = 'replay'; sfx.whoosh();
+  $('skipBar').classList.remove('hidden');
+}
+function upgradeLive(msg){              // the full throw has arrived: carry on from where we are
+  const r = replay; r.m = msg; r.live = false;
+  netQueue = netQueue.filter(q=>q.n !== msg.n);
+  if(r.skip || settings.autoSkip) skipReplay();
+}
 function stepReplay(dt){
   if(!replay) return;
   const r = replay, P = r.m.path, dm = flyerMesh(discKey);
-  r.t += dt;
+  if(r.live){ const lastT = P.length ? P[P.length-1][0] : 0, lag = lastT - r.t;
+    r.t = Math.min(lastT, r.t + dt*(lag > 0.9 ? 1.35 : 1)); }      // hold at the newest point; catch up if we fall behind
+  else r.t += dt;
   while(r.k < P.length - 1 && P[r.k+1][0] <= r.t) r.k++;
   if(P.length){
     const a = P[r.k], b = P[Math.min(P.length-1, r.k+1)], u = b[0] > a[0] ? Math.min(1, (r.t - a[0])/(b[0] - a[0])) : 0;
@@ -2789,7 +2820,7 @@ function stepReplay(dt){
     const last = trailPts[trailPts.length-1]; if(!last || Math.hypot(last[0]-x, last[1]-y, last[2]-z) > 0.8){ trailPts.push([x,y,z]); if(trailPts.length > TRAIL_N) trailPts.shift(); updateTrail(); }
   }
   const end = P.length ? P[P.length-1][0] : 0;
-  if(r.t >= end + 0.4) finishReplay();
+  if(!r.live && r.t >= end + 0.4) finishReplay();
 }
 function applyThrow(m){
   const p = players[m.idx]; if(!p) return p;
@@ -2802,6 +2833,7 @@ function applyThrow(m){
 }
 // the host moved on: apply anything still being watched or waiting so scores never get lost
 function flushRemote(){
+  if(replay && replay.live){ replay = null; $('skipBar').classList.add('hidden'); if(state==='replay') state = 'rpause'; }
   if(replay){ applyThrow(replay.m); replay = null; $('skipBar').classList.add('hidden'); if(state==='replay') state = 'rpause'; }
   netQueue.filter(m=>m.hole <= holeIdx).forEach(applyThrow);
   netQueue = netQueue.filter(m=>m.hole > holeIdx);
@@ -2809,6 +2841,7 @@ function flushRemote(){
 // jump straight to where the opponent's disc ended up
 function skipReplay(){
   if(!replay || state!=='replay') return;
+  if(replay.live){ replay.skip = true; return; }      // jump once the throw is complete
   const P = replay.m.path, e = P[P.length-1];
   if(e){
     replay.t = e[0]; replay.k = P.length - 1; stepReplay(0);
@@ -3015,6 +3048,9 @@ function frame(){
   if(mode==='online' && flying && (state==='flight' || state==='roll' || state==='rest') && cur===myIdx && throwPath){
     recT += dt; recAcc += dt;
     if(recAcc >= 1/30 && throwPath.length < 900){ recAcc = 0; const tl = dm.userData.tilt; throwPath.push([+recT.toFixed(3), +dm.position.x.toFixed(2), +dm.position.y.toFixed(2), +dm.position.z.toFixed(2), +tl.rotation.z.toFixed(2), +tl.rotation.x.toFixed(2), +dm.rotation.y.toFixed(2)]); }
+    // live: send the new points about 6 times a second so the others watch it as it flies
+    liveAcc += dt;
+    if(liveAcc >= 0.16 && throwPath.length > liveSent){ liveAcc = 0; netSend({t:'live', seq:(net.seq||0) + 1, hole:holeIdx, idx:cur, disc:discKey, from0:liveSent, pts:throwPath.slice(liveSent)}, 0); liveSent = throwPath.length; }
   }
   drawMap();
   renderer.render(scene, camera);
