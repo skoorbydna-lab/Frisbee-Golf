@@ -23,7 +23,7 @@
   #wind{display:flex;align-items:center;gap:6px;font-size:13px;line-height:1.1}
   #wind small{display:block;font-size:10px;opacity:.7;font-weight:500}
   #arrow{width:22px;height:22px;display:inline-block}
-  #map{width:96px;height:128px;border:3px solid var(--ink);border-radius:12px;box-shadow:0 3px 0 var(--ink);background:#4f8f3a}
+  #map{pointer-events:auto;cursor:pointer;width:96px;height:128px;border:3px solid var(--ink);border-radius:12px;box-shadow:0 3px 0 var(--ink);background:#4f8f3a}
   #msg{position:fixed;left:50%;top:32%;transform:translate(-50%,-50%);font-size:28px;font-weight:700;color:#fff;
        text-shadow:-2px -2px 0 var(--ink),2px -2px 0 var(--ink),-2px 2px 0 var(--ink),2px 2px 0 var(--ink),0 4px 0 var(--ink),0 0 10px rgba(0,0,0,.4);pointer-events:none;opacity:0;transition:opacity .25s;text-align:center;white-space:nowrap}
   #bottom{position:fixed;left:0;right:0;bottom:0;padding:10px 10px calc(12px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px;pointer-events:none}
@@ -93,6 +93,13 @@
 </div>
 
 <div id="statsCard" class="hidden"></div>
+<div class="overlay hidden" id="bigMapScreen" style="padding:10px;align-items:stretch">
+  <div style="display:flex;flex-direction:column;gap:8px;width:100%;max-width:560px;margin:auto">
+    <div class="pill" id="bigMapInfo" style="font-size:13.5px;text-align:center;line-height:1.35"></div>
+    <canvas id="bigMap" style="width:100%;border:3px solid var(--ink);border-radius:14px;box-shadow:0 3px 0 var(--ink);touch-action:none;background:#4f8f3a"></canvas>
+    <button class="btn" id="bigMapDone" style="margin:0">Done</button>
+  </div>
+</div>
 <div id="msg"></div>
 
 <div id="bottom" class="hidden">
@@ -1181,7 +1188,115 @@ function drawMapStatic(){
   for(const c of W.cyls){ const [px,py] = mapTf.f(c.x, c.z); g.beginPath(); g.arc(px, py, Math.max(1.5*d, c.r*s), 0, 7); g.fill(); }
   for(const b of W.baskets){ const [bx, by] = mapTf.f(b.x, b.z); g.fillStyle = '#ff3d00'; g.strokeStyle = '#14202b'; g.lineWidth = 1.5*d; g.beginPath(); g.arc(bx, by, 3.5*d, 0, 7); g.fill(); g.stroke(); }
 }
+// ---- big map: tap the minimap. Shows how far your disc/club can go and lets you aim by tapping the map ----
+const big = {tf:null, img:null, hole:null, aim:null, open:false}, maxCache = {};
+function maxDistance(key){
+  const ck = (GOLF ? 'g:' : 'd:') + key; if(maxCache[ck]) return maxCache[ck];
+  const w = C.makeWorld(C.RANGE); w.trees = []; w.cyls = []; w.boxes = []; w.wind = {x:0, z:0};
+  const y0 = w.T(0, 0).h; let best = 0, carry = 0;
+  if(GOLF){
+    const K = C.CLUBS[key] || C.CLUBS.driver, putt = key==='putter', sp = shotSpeed(K, 1, putt), lo = K.loft*Math.PI/180;
+    const f = C.newBall({x:0, y:y0 + 0.04, z:0}, {x:0, y:putt ? 0 : Math.sin(lo)*sp, z:-Math.cos(lo)*sp}, putt ? 0 : K.spin, 0, 0);
+    let st = putt ? 'roll' : 'flight'; if(putt) f.firstLand = {x:0, y:y0, z:0};
+    for(let i=0;i<4000;i++){ const e = st==='flight' ? C.stepBall(w, f, 1/60) : C.stepBallRoll(w, f, 1/60); if(e==='land'){ st = 'roll'; continue; } if(e) break; }
+    best = Math.hypot(f.pos.x, f.pos.z); carry = f.firstLand ? Math.hypot(f.firstLand.x, f.firstLand.z) : best;
+  } else {
+    const D = C.DISCS[key] || C.DISCS.driver;
+    for(const pt of [0.12, 0.2, 0.28]){
+      const f = C.newFlight({x:0, y:y0 + 1.5, z:0}, {x:0, y:Math.sin(pt)*D.max, z:-Math.cos(pt)*D.max}, 0);
+      let st = 'flight'; for(let i=0;i<20000;i++){ const e = st==='flight' ? C.stepFlight(w, f, D, 1/120) : C.stepRoll(w, f, 1/120); if(e==='land'){ st = 'roll'; continue; } if(e) break; }
+      const d = Math.hypot(f.pos.x, f.pos.z); if(d > best){ best = d; carry = f.firstLand ? Math.hypot(f.firstLand.x, f.firstLand.z) : d; }
+    }
+  }
+  return maxCache[ck] = {total:best, carry};
+}
+function bigMapBuild(){
+  const cv = $('bigMap'), wcss = cv.clientWidth || Math.min(innerWidth - 20, 560), hcss = Math.max(260, innerHeight - 190);
+  cv.style.height = hcss + 'px';
+  const d = Math.min(window.devicePixelRatio || 1, 2); cv.width = wcss*d; cv.height = hcss*d;
+  const b = W.bounds, pad = 14*d, Wd = cv.width, Hd = cv.height;
+  const s = Math.min((Wd - 2*pad)/(b.maxX - b.minX), (Hd - 2*pad)/(b.maxZ - b.minZ)), cx = (b.minX + b.maxX)/2, cz = (b.minZ + b.maxZ)/2;
+  big.tf = {s, d, f:(x,z)=>[Wd/2 + (x-cx)*s, Hd/2 + (z-cz)*s], inv:(px,py)=>[cx + (px - Wd/2)/s, cz + (py - Hd/2)/s]};
+  // terrain at about one sample per screen pixel, then scaled up
+  const k = Math.max(1, Math.round(d)), tw = Math.ceil(Wd/k), th = Math.ceil(Hd/k), tc = document.createElement('canvas'); tc.width = tw; tc.height = th;
+  const g = tc.getContext('2d'), img = g.createImageData(tw, th), col = new THREE.Color();
+  const MC = {fair:'#245e1e', green:'#4aa834', grass:'#78a650', out:'#78a650', forest:'#4e6e34', stone:'#7f925c', sand:'#ecd9a4', concrete:'#c8c5bd', rock:'#a07750', canyonfloor:'#d9b98a', water:'#3fa4e8', gorge:'#3a3029'};
+  for(let py=0; py<th; py++) for(let px=0; px<tw; px++){
+    const [x, z] = big.tf.inv(px*k + k/2, py*k + k/2), t = W.T(x, z), q = (py*tw + px)*4;
+    col.set(MC[t.type] || MC.grass); const sh = 1 + Math.max(-0.12, Math.min(0.12, (W.T(x + 1.5, z - 1.5).h - t.h)*0.06));   // a little hill shading
+    img.data[q] = Math.min(255, col.r*255*sh); img.data[q+1] = Math.min(255, col.g*255*sh); img.data[q+2] = Math.min(255, col.b*255*sh); img.data[q+3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const st = document.createElement('canvas'); st.width = Wd; st.height = Hd; const G = st.getContext('2d');
+  G.imageSmoothingEnabled = true; G.drawImage(tc, 0, 0, Wd, Hd);
+  G.fillStyle = 'rgba(25,60,30,.85)';
+  for(const t of W.trees){ const [px,py] = big.tf.f(t.x, t.z); G.beginPath(); G.arc(px, py, Math.max(1.6*d, 1.4*s), 0, 7); G.fill(); }
+  G.fillStyle = '#4b5660';
+  for(const bx of W.boxes){ if(bx.kind==='roof'||bx.kind==='truss') continue; const [x0,y0] = big.tf.f(bx.min[0], bx.min[2]), [x1,y1] = big.tf.f(bx.max[0], bx.max[2]); G.fillRect(x0, y0, Math.max(1, x1-x0), Math.max(1, y1-y0)); }
+  for(const c of W.cyls){ const [px,py] = big.tf.f(c.x, c.z); G.beginPath(); G.arc(px, py, Math.max(2*d, c.r*s), 0, 7); G.fill(); }
+  big.img = st; big.hole = W;
+}
+function canAimOnMap(){ return state==='aim' && !(mode==='online' && cur!==myIdx); }
+function bigMapDraw(){
+  if(!big.open || !big.tf) return;
+  const cv = $('bigMap'), g = cv.getContext('2d'), {d, f, s} = big.tf;
+  g.drawImage(big.img, 0, 0);
+  const [lx, ly] = f(lie.x, lie.z), M = maxDistance(discKey), fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+  const txt = (t, x, y, col, size)=>{ g.font = `700 ${(size||13)*d}px Fredoka, sans-serif`; g.textAlign = 'center'; g.lineWidth = 4*d; g.strokeStyle = 'rgba(20,32,43,.85)'; g.strokeText(t, x, y); g.fillStyle = col || '#fff'; g.fillText(t, x, y); };
+  // reach: shaded disc out to the max, with the carry for clubs
+  g.fillStyle = 'rgba(255,255,255,.10)'; g.beginPath(); g.arc(lx, ly, M.total*s, 0, 7); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 2*d; g.setLineDash([6*d, 5*d]); g.beginPath(); g.arc(lx, ly, M.total*s, 0, 7); g.stroke();
+  if(GOLF && discKey!=='putter' && M.carry < M.total - 3){ g.strokeStyle = 'rgba(255,220,120,.8)'; g.beginPath(); g.arc(lx, ly, M.carry*s, 0, 7); g.stroke(); }
+  g.setLineDash([]);
+  // distance rings every 50 m inside the reach
+  g.strokeStyle = 'rgba(255,255,255,.22)'; g.lineWidth = 1*d; for(let r=50; r<M.total - 10; r+=50){ g.beginPath(); g.arc(lx, ly, r*s, 0, 7); g.stroke(); }
+  // aim line out to the max distance
+  const [ex, ey] = f(lie.x + fx*M.total, lie.z + fz*M.total);
+  g.strokeStyle = '#ff8a1f'; g.lineWidth = 3*d; g.beginPath(); g.moveTo(lx, ly); g.lineTo(ex, ey); g.stroke();
+  if(GOLF && prevLine.visible){ const a = prevGeo.attributes.position.array, n = prevGeo.drawRange.count; g.strokeStyle = '#ffffff'; g.lineWidth = 2*d; g.beginPath(); for(let i=0;i<n;i++){ const [x,y] = f(a[i*3], a[i*3+2]); i ? g.lineTo(x,y) : g.moveTo(x,y); } g.stroke(); }
+  // baskets / holes
+  for(const B of W.baskets){ const [bx, by] = f(B.x, B.z); g.fillStyle = '#ff3d00'; g.strokeStyle = '#14202b'; g.lineWidth = 2*d; g.beginPath(); g.arc(bx, by, 6*d, 0, 7); g.fill(); g.stroke(); }
+  const T = targetOf(lie), [tx, ty] = f(T.x, T.z); txt(`${distToBasket(lie).toFixed(0)} m`, tx, ty - 11*d, '#ffd9c9');
+  // other players
+  if(multi()) players.forEach((p,i)=>{ if(i===cur || p.done) return; const [px,py] = f(p.lie.x, p.lie.z); g.fillStyle = p.color; g.strokeStyle = '#14202b'; g.lineWidth = 1.5*d; g.beginPath(); g.arc(px, py, 5*d, 0, 7); g.fill(); g.stroke(); });
+  // your aim point
+  if(big.aim){ const [ax, ay] = f(big.aim.x, big.aim.z), dd = Math.hypot(big.aim.x - lie.x, big.aim.z - lie.z);
+    g.strokeStyle = '#fff'; g.lineWidth = 2.5*d; g.beginPath(); g.arc(ax, ay, 9*d, 0, 7); g.moveTo(ax - 14*d, ay); g.lineTo(ax + 14*d, ay); g.moveTo(ax, ay - 14*d); g.lineTo(ax, ay + 14*d); g.stroke();
+    txt(`${dd.toFixed(0)} m${dd > M.total + 2 ? ' – out of reach' : ''}`, ax, ay - 16*d, dd > M.total + 2 ? '#ff9b8a' : '#fff'); }
+  // you
+  g.fillStyle = '#ffffff'; g.strokeStyle = '#14202b'; g.lineWidth = 2*d; g.beginPath(); g.arc(lx, ly, 6*d, 0, 7); g.fill(); g.stroke();
+  // wind arrow in the corner
+  const wx = W.wind.x, wz = W.wind.z, ws = Math.hypot(wx, wz), cx0 = cv.width - 34*d, cy0 = 34*d;
+  g.fillStyle = 'rgba(255,255,255,.85)'; g.beginPath(); g.arc(cx0, cy0, 24*d, 0, 7); g.fill();
+  if(ws > 0.2){ g.save(); g.translate(cx0, cy0); g.rotate(Math.atan2(wx, -wz)); g.fillStyle = '#2a8fd6'; g.strokeStyle = '#14202b'; g.lineWidth = 1.5*d; g.beginPath(); g.moveTo(0, -16*d); g.lineTo(8*d, 0); g.lineTo(3*d, 0); g.lineTo(3*d, 14*d); g.lineTo(-3*d, 14*d); g.lineTo(-3*d, 0); g.lineTo(-8*d, 0); g.closePath(); g.fill(); g.stroke(); g.restore(); }
+  txt(`${ws.toFixed(0)} m/s`, cx0, cy0 + 40*d, '#fff', 12);
+  $('bigMapInfo').innerHTML = `<b>${esc(gearName(discKey))}</b>: up to ~${M.total.toFixed(0)} m${GOLF && discKey!=='putter' ? ` (${M.carry.toFixed(0)} carry)` : ''} with a full, straight ${GOLF ? 'swing' : 'flick'} in still air` +
+    `<br>${canAimOnMap() ? '👆 Tap or drag on the map to aim' : 'Map view'} · ${distToBasket(lie).toFixed(0)} m to the ${GOLF ? 'hole' : 'basket'}`;
+}
+function openBigMap(){
+  if(!W || !mapTf || state==='menu') return;
+  exitScout && state==='scout' && exitScout();
+  big.open = true; big.aim = null; $('bigMapScreen').classList.remove('hidden');
+  if(big.hole !== W || !big.img) requestAnimationFrame(()=>{ bigMapBuild(); bigMapDraw(); }); else bigMapDraw();
+}
+function closeBigMap(){ big.open = false; $('bigMapScreen').classList.add('hidden'); }
+function bigMapAim(e){
+  if(!canAimOnMap() || !big.tf) return;
+  const cv = $('bigMap'), r = cv.getBoundingClientRect(), k = cv.width/r.width;
+  const [x, z] = big.tf.inv((e.clientX - r.left)*k, (e.clientY - r.top)*k);
+  if(Math.hypot(x - lie.x, z - lie.z) < 3) return;
+  yaw = Math.atan2(-(x - lie.x), -(z - lie.z)); big.aim = {x, z}; prevKey = '';
+  if(GOLF) updatePreview(0);
+  bigMapDraw();
+}
+$('map').addEventListener('click', e=>{ e.stopPropagation(); openBigMap(); });
+$('map').addEventListener('pointerdown', e=>e.stopPropagation());
+$('bigMap').addEventListener('pointerdown', e=>{ e.preventDefault(); e.stopPropagation(); try{ $('bigMap').setPointerCapture(e.pointerId); }catch(err){} bigMapAim(e); });
+$('bigMap').addEventListener('pointermove', e=>{ if(e.buttons) bigMapAim(e); });
+$('bigMapDone').addEventListener('click', closeBigMap);
+let bigMapT = 0;
 function drawMap(){
+  if(big.open){ if(big.hole !== W){ bigMapBuild(); big.aim = null; } bigMapT += 1; if(bigMapT % 6 === 0) bigMapDraw(); }
   if(!mapTf) return; const d = mapTf.d;
   mctx.drawImage(mapStatic, 0, 0);
   const [lx, ly] = mapTf.f(lie.x, lie.z);
@@ -2054,7 +2169,7 @@ $('nextBtn').addEventListener('click', ()=>{
   if(mode==='online'){ if(!net.host) return; netSend({t:'hole', i:holeIdx + 1}); }
   if(holeIdx === RH.length - 1) finishRound(); else startHole(holeIdx + 1);
 });
-function toMenu(){ clubRig.visible = false; hidePreview(); discs.__ball.visible = false; cancelMotion(); $('rangeRow').classList.add('hidden'); $('statsCard').classList.add('hidden'); clearSession(); netClose(); $('skipBar').classList.add('hidden'); $('waitBar').classList.add('hidden'); $('scoutBar').classList.add('hidden'); $('passScreen').classList.add('hidden'); while(others.children.length) others.remove(others.children[0]); state = 'menu'; $('top').classList.add('hidden'); $('bottom').classList.add('hidden'); $('holeScreen').classList.add('hidden'); $('pauseScreen').classList.add('hidden'); renderMenu(); $('menuScreen').classList.remove('hidden'); for(const k in held) held[k].visible = false; }
+function toMenu(){ closeBigMap(); clubRig.visible = false; hidePreview(); discs.__ball.visible = false; cancelMotion(); $('rangeRow').classList.add('hidden'); $('statsCard').classList.add('hidden'); clearSession(); netClose(); $('skipBar').classList.add('hidden'); $('waitBar').classList.add('hidden'); $('scoutBar').classList.add('hidden'); $('passScreen').classList.add('hidden'); while(others.children.length) others.remove(others.children[0]); state = 'menu'; $('top').classList.add('hidden'); $('bottom').classList.add('hidden'); $('holeScreen').classList.add('hidden'); $('pauseScreen').classList.add('hidden'); renderMenu(); $('menuScreen').classList.remove('hidden'); for(const k in held) held[k].visible = false; }
 $('menuBtn').addEventListener('click', ()=>{ exitScout(); $('pauseScreen').classList.remove('hidden'); });
 $('resumeBtn').addEventListener('click', ()=>$('pauseScreen').classList.add('hidden'));
 $('quitBtn').addEventListener('click', toMenu);
