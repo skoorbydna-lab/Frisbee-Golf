@@ -107,6 +107,7 @@
     <button class="chip" data-club="iron9">9 Iron<small>~110</small></button>
     <button class="chip" data-club="wedge">Wedge<small>~65</small></button>
     <button class="chip" data-club="putter">Putter</button>
+    <button class="chip" id="spinBtn" style="flex:0 0 52px"><svg viewBox="0 0 40 40" width="26" height="26"><circle cx="20" cy="20" r="17" fill="#fff" stroke="#14202b" stroke-width="3"/><circle id="spinDot" cx="20" cy="20" r="5" fill="#ff2a1a"/></svg><small id="spinTxt">Spin</small></button>
   </div>
   <div class="row hidden" id="motionRow">
     <button class="chip" id="motionBtn">📱 Motion swing: Off</button>
@@ -207,6 +208,16 @@
   </div>
 </div>
 
+<div class="overlay hidden" id="spinScreen"><div class="card" style="max-width:340px;text-align:center">
+  <h2 style="margin:0 0 4px">Spin</h2><p style="margin:0 0 8px;font-size:14px">Tap where to strike the ball</p>
+  <div style="font-size:13px;font-weight:600">▲ Topspin: flies lower, runs on</div>
+  <div style="display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;font-weight:600"><span>◀ Draw</span>
+  <svg id="spinPad" viewBox="0 0 200 200" width="190" height="190" style="touch-action:none"><circle cx="100" cy="100" r="92" fill="#fff" stroke="#14202b" stroke-width="5"/><g fill="#d8dde2"><circle cx="70" cy="60" r="5"/><circle cx="100" cy="52" r="5"/><circle cx="130" cy="60" r="5"/><circle cx="55" cy="95" r="5"/><circle cx="85" cy="88" r="5"/><circle cx="115" cy="88" r="5"/><circle cx="145" cy="95" r="5"/><circle cx="68" cy="128" r="5"/><circle cx="100" cy="122" r="5"/><circle cx="132" cy="128" r="5"/><circle cx="100" cy="155" r="5"/></g><path d="M100 18V182M18 100H182" stroke="#14202b" stroke-opacity=".2" stroke-width="2"/><circle id="spinPadDot" cx="100" cy="100" r="13" fill="#ff2a1a" stroke="#14202b" stroke-width="3"/></svg>
+  <span>Fade ▶</span></div>
+  <div style="font-size:13px;font-weight:600">▼ Backspin: stops quickly, can zip back</div>
+  <p id="spinSum" style="margin:8px 0;font-size:14px"></p>
+  <div style="display:flex;gap:8px"><button class="chip" id="spinReset">Centre</button><button class="chip on" id="spinDone">Done</button></div>
+</div></div>
 <div class="overlay hidden" id="passScreen">
   <div class="card" id="passCard">
     <div id="passDot" style="width:46px;height:46px;border-radius:50%;border:4px solid var(--ink);margin:0 auto 6px"></div>
@@ -871,7 +882,8 @@ const CLUBS = {
 const SURF = {green:{e:0.25, roll:0.8, fr:0.22}, fair:{e:0.3, roll:2.8, fr:0.35}, grass:{e:0.18, roll:5, fr:0.5}, out:{e:0.18, roll:5, fr:0.5},
   forest:{e:0.15, roll:5.5, fr:0.6}, sand:{e:0.03, roll:14, fr:0.85}, rock:{e:0.5, roll:2.2, fr:0.22}, stone:{e:0.42, roll:2.6, fr:0.25},
   canyonfloor:{e:0.3, roll:2.8, fr:0.35}, concrete:{e:0.55, roll:1.2, fr:0.15}, hard:{e:0.5, roll:1.6, fr:0.2}};
-function newBall(pos, vel, backspin, side){ const f = newFlight(pos, vel, 0); f.ball = true; f.backspin = backspin; f.side = side; f.bounces = 0; return f; }
+// spinV: +1 full backspin (stops, zips back on short grass) … -1 full topspin (flies lower, runs on)
+function newBall(pos, vel, backspin, side, spinV){ const f = newFlight(pos, vel, 0); f.ball = true; f.backspin = backspin; f.side = side; f.bounces = 0; f.spinV = spinV || 0; return f; }
 function cupNear(w, p){ let best = null, bd = 1e9; for(const B of w.baskets){ const d = Math.hypot(p.x-B.x, p.z-B.z); if(d < bd){ bd = d; best = B; } } return [best, bd]; }
 function stepBall(w, f, dt){
   const p = f.pos, v = f.vel, px = p.x, py = p.y, pz = p.z;
@@ -895,13 +907,20 @@ function stepBall(w, f, dt){
     const gty = su.on ? 'hard' : w.T(p.x, p.z).type, S = SURF[gty] || SURF.grass, vy = -v.y;
     const [B, db] = cupNear(w, p); if(db < 0.1 && Math.hypot(v.x, v.z) < 5) return 'in';   // straight in the hole
     if(vy > 1.0){
-      const bite = (gty==='green' || gty==='fair') ? Math.min(0.5, f.backspin*0.3) : 0;     // backspin checks it up on short grass
-      v.y = vy*S.e; v.x *= 1 - S.fr - bite; v.z *= 1 - S.fr - bite;
+      const top = Math.max(0, -f.spinV), short = gty==='green' || gty==='fair';
+      const bite = short ? Math.min(0.6, f.backspin*0.3*(1 + Math.max(0, f.spinV))) : 0;     // backspin checks it up on short grass
+      const fr = S.fr*(1 - 0.2*top);                                                         // topspin skips on
+      if(f.bounces===0 && short && f.spinV > 0.25) f.zip = Math.min(5, Math.hypot(v.x, v.z)*0.24*(f.spinV - 0.25)*Math.min(1.6, f.backspin))*(gty==='green' ? 1 : 0.55);
+      v.y = vy*S.e*(1 - 0.3*top); v.x *= 1 - fr - bite; v.z *= 1 - fr - bite;
       { const h2 = Math.hypot(v.x, v.z) || 1, k = f.side*0.25*h2; v.x += (-v.z/h2)*k; v.z += (v.x/h2)*k; }
       f.backspin *= 0.5; f.side *= 0.5;
       p.y = su.s + 0.025; f.bounces++; ev(w,'land'); return null;
     }
-    v.y = 0; f.on = su.on; ev(w,'land'); return 'land';
+    v.y = 0; f.on = su.on;
+    { const short = gty==='green' || gty==='fair', h = Math.hypot(v.x, v.z);
+      if(f.zip && short && h > 0.01){ const z = f.zip; v.x = -v.x/h*z; v.z = -v.z/h*z; f.zip = 0; }              // backspin grabs and spins it back
+      else if(f.spinV < -0.2 && h > 0){ const k = 1 + 0.1*(-f.spinV); v.x *= k; v.z *= k; } }                                                                 // topspin runs out
+    ev(w,'land'); return 'land';
   }
   if(f.t > 14 || outside(w, p.x, p.z) || p.y < -40) return 'ob-out';
   return null;
@@ -1368,7 +1387,8 @@ function hidePreview(){ prevLine.visible = false; prevRing.visible = false; if(p
 function simShot(power){
   const K = C.CLUBS[discKey] || C.CLUBS.driver, putt = discKey==='putter';
   const speed = shotSpeed(K, power, putt), loft = K.loft*Math.PI/180, y0 = Math.max(lie.y, meshH(lie.x, lie.z)) + 0.04;
-  const f = C.newBall({x:lie.x, y:y0, z:lie.z}, {x:-Math.sin(yaw)*Math.cos(loft)*speed, y:Math.sin(loft)*speed, z:-Math.cos(yaw)*Math.cos(loft)*speed}, K.spin*(0.5 + 0.5*power), 0);
+  const sp = spinParts(K, power, putt, 0);
+  const f = C.newBall({x:lie.x, y:y0, z:lie.z}, {x:-Math.sin(yaw)*Math.cos(loft)*speed, y:Math.sin(loft)*speed, z:-Math.cos(yaw)*Math.cos(loft)*speed}, sp.back, sp.side, sp.v);
   let st = putt ? 'roll' : 'flight'; if(putt){ f.pos.y = y0 - 0.02; f.vel.y = 0; f.firstLand = {x:lie.x, y:y0, z:lie.z}; }
   const pts = [[f.pos.x, f.pos.y, f.pos.z]], ev0 = W.events.length; let res = null, land = null;
   for(let i=0; i<3000; i++){
@@ -1384,7 +1404,7 @@ function simShot(power){
 function updatePreview(dt){
   if(!GOLF || !(state==='aim' || state==='motion' || (state==='scout' && scout.prev==='aim')) || !W){ hidePreview(); return; }
   prevT -= dt;
-  const key = [lie.x.toFixed(2), lie.z.toFixed(2), yaw.toFixed(3), discKey].join('|');
+  const key = [lie.x.toFixed(2), lie.z.toFixed(2), yaw.toFixed(3), discKey, spin.x.toFixed(2), spin.y.toFixed(2)].join('|');
   if(key===prevKey && prevT > 0) return;
   prevKey = key; prevT = 0.5;      // wind gusts change the line, so refresh twice a second
   let sim; puttPace = null;
@@ -2028,8 +2048,33 @@ const lie = new THREE.Vector3(), lastLie = new THREE.Vector3();
 let power = 0, flying = null, restTimer = 0, lastThrowDist = 0, outcome = null, obMsg = '';
 let windNow = {x:0, z:0, sp:0, base:0};
 
+const spin = {x:0, y:0};      // x: -1 draw … +1 fade; y: +1 backspin … -1 topspin
+function spinName(){ const v = spin.y, h = spin.x, a = [];
+  if(v > 0.15) a.push(v > 0.6 ? 'Big backspin' : 'Backspin'); else if(v < -0.15) a.push(v < -0.6 ? 'Big topspin' : 'Topspin');
+  if(h > 0.15) a.push('fade'); else if(h < -0.15) a.push('draw');
+  return a.length ? a.join(' + ') : 'No extra spin'; }
+function renderSpin(){
+  const r = Math.hypot(spin.x, spin.y); if(r > 1){ spin.x /= r; spin.y /= r; }
+  $('spinDot').setAttribute('cx', 20 + spin.x*11); $('spinDot').setAttribute('cy', 20 + spin.y*11);
+  $('spinPadDot').setAttribute('cx', 100 + spin.x*72); $('spinPadDot').setAttribute('cy', 100 + spin.y*72);
+  const on = Math.abs(spin.x) > 0.15 || Math.abs(spin.y) > 0.15;
+  $('spinTxt').textContent = !on ? 'Spin' : spin.y > 0.15 ? 'Back' : spin.y < -0.15 ? 'Top' : spin.x > 0 ? 'Fade' : 'Draw';
+  $('spinBtn').classList.toggle('on', on); $('spinBtn').style.opacity = discKey==='putter' ? 0.4 : 1;
+  $('spinSum').textContent = spinName(); prevKey = '';
+}
+function setSpinFrom(e){ const b = $('spinPad').getBoundingClientRect(); spin.x = ((e.clientX - b.left)/b.width*200 - 100)/72; spin.y = ((e.clientY - b.top)/b.height*200 - 100)/72; renderSpin(); }
+$('spinPad').addEventListener('pointerdown', e=>{ e.preventDefault(); setSpinFrom(e); $('spinPad').setPointerCapture(e.pointerId); });
+$('spinPad').addEventListener('pointermove', e=>{ if(e.buttons) setSpinFrom(e); });
+$('spinBtn').addEventListener('click', ()=>{ if(discKey==='putter') return; renderSpin(); $('spinScreen').classList.remove('hidden'); });
+$('spinReset').addEventListener('click', ()=>{ spin.x = 0; spin.y = 0; renderSpin(); });
+$('spinDone').addEventListener('click', ()=>$('spinScreen').classList.add('hidden'));
+function spinParts(K, power, putt, side){
+  if(putt) return {back:0, side, v:0};
+  const v = spin.y, back = K.spin*(0.5 + 0.5*power)*(v >= 0 ? 1 + 0.9*v : 1 + 0.6*v);
+  return {back, side:Math.max(-1.3, Math.min(1.3, side + spin.x*0.45)), v};
+}
 function setClub(k){ discKey = k; document.querySelectorAll('[data-club]').forEach(b=>b.classList.toggle('on', b.dataset.club===k)); if(mode==='range' || state==='aim') updateHUD && updateHUD(); }
-document.querySelectorAll('[data-club]').forEach(b=>b.addEventListener('click', ()=>setClub(b.dataset.club)));
+document.querySelectorAll('[data-club]').forEach(b=>b.addEventListener('click', ()=>{ setClub(b.dataset.club); renderSpin(); }));
 function setDisc(k){ if(GOLF) return setClub(C.CLUBS[k] ? k : 'driver'); discKey = k; document.querySelectorAll('[data-disc]').forEach(b=>b.classList.toggle('on', b.dataset.disc===k)); for(const j in held) held[j].visible = (j===k && (state==='aim' || state==='flick')); }
 document.querySelectorAll('[data-disc]').forEach(b=>b.addEventListener('click', ()=>setDisc(b.dataset.disc)));
 function targetOf(p){ if(mode!=='range') return W.basket; let best = W.baskets[0], bd = 1e9; for(const b of W.baskets){ const e = Math.hypot(p.x-b.x, p.z-b.z); if(e < bd){ bd = e; best = b; } } return best; }
@@ -2362,7 +2407,9 @@ function strike(sw){
   const ty = yaw - pathDeg*Math.PI/180, loft = K.loft*Math.PI/180;
   const vel = {x:-Math.sin(ty)*Math.cos(loft)*speed, y:Math.sin(loft)*speed, z:-Math.cos(ty)*Math.cos(loft)*speed};
   const y0 = Math.max(lie.y, meshH(lie.x, lie.z)) + 0.04;
-  flying = C.newBall({x:lie.x, y:y0, z:lie.z}, vel, K.spin*(0.5 + 0.5*power), side);
+  const spp = spinParts(K, power, sw.putt, side);
+  flying = C.newBall({x:lie.x, y:y0, z:lie.z}, vel, spp.back, spp.side, spp.v);
+  const spinUsed = sw.putt ? '' : spinName(); sw.spinName = spinUsed; spin.x = 0; spin.y = 0; renderSpin();
   showFlyer(discKey); trailPts = [[lie.x, y0, lie.z]];
   lastFlick = {f:sw, golf:true, disc:discKey, launchDeg:K.loft, aimDeg:pathDeg, dir:ty, aimYaw:yaw, sx:lie.x, sz:lie.z, sy:y0, side};
   $('statsCard').classList.add('hidden');
@@ -2437,6 +2484,7 @@ function showGolfStats(kind){
     <div class="srow"><span class="more">tap for more ▾</span><b>Power ${(sw.power*100).toFixed(0)}%</b> ${bar(sw.power,'#ff8a1f')} ${gearName(L.disc)}</div>
     <div class="srow det">Backswing ${bar(sw.back,'#3fbf5f')} ${(sw.back*100).toFixed(0)}%</div>
     ${sw.motion ? `<div class="srow det">📱 Swing speed ${Math.round(sw.peak)} °/s${settings.gentle ? ' (gentle)' : ''}</div>` : sw.putt ? '' : `<div class="srow det">Tempo ${bar(sw.tempo,'#2a8fd6')} ${sw.speedV.toFixed(1)} screens/s</div>`}
+    ${sw.spinName && sw.spinName!=='No extra spin' ? `<div class="srow">Spin: <b>${sw.spinName}</b></div>` : ''}
     <div class="srow">Shot shape: <b>${shape}</b>${sw.putt || kind==='chains' ? '' : ` · finished ${Math.abs(side) < 1.5 ? 'on your line' : `${Math.abs(side).toFixed(0)} m ${side > 0 ? 'right' : 'left'} of your aim`}`}</div>
     <div class="srow"><b>${res}</b></div>
     ${sw.putt ? '' : `<div class="srow det">${Math.max(0, (F.maxY ?? L.sy) - L.sy).toFixed(0)} m high · ${F.bounces||0} bounce${(F.bounces||0)===1?'':'s'}</div>`}

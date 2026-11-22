@@ -626,7 +626,8 @@ const CLUBS = {
 const SURF = {green:{e:0.25, roll:0.8, fr:0.22}, fair:{e:0.3, roll:2.8, fr:0.35}, grass:{e:0.18, roll:5, fr:0.5}, out:{e:0.18, roll:5, fr:0.5},
   forest:{e:0.15, roll:5.5, fr:0.6}, sand:{e:0.03, roll:14, fr:0.85}, rock:{e:0.5, roll:2.2, fr:0.22}, stone:{e:0.42, roll:2.6, fr:0.25},
   canyonfloor:{e:0.3, roll:2.8, fr:0.35}, concrete:{e:0.55, roll:1.2, fr:0.15}, hard:{e:0.5, roll:1.6, fr:0.2}};
-function newBall(pos, vel, backspin, side){ const f = newFlight(pos, vel, 0); f.ball = true; f.backspin = backspin; f.side = side; f.bounces = 0; return f; }
+// spinV: +1 full backspin (stops, zips back on short grass) … -1 full topspin (flies lower, runs on)
+function newBall(pos, vel, backspin, side, spinV){ const f = newFlight(pos, vel, 0); f.ball = true; f.backspin = backspin; f.side = side; f.bounces = 0; f.spinV = spinV || 0; return f; }
 function cupNear(w, p){ let best = null, bd = 1e9; for(const B of w.baskets){ const d = Math.hypot(p.x-B.x, p.z-B.z); if(d < bd){ bd = d; best = B; } } return [best, bd]; }
 function stepBall(w, f, dt){
   const p = f.pos, v = f.vel, px = p.x, py = p.y, pz = p.z;
@@ -650,13 +651,20 @@ function stepBall(w, f, dt){
     const gty = su.on ? 'hard' : w.T(p.x, p.z).type, S = SURF[gty] || SURF.grass, vy = -v.y;
     const [B, db] = cupNear(w, p); if(db < 0.1 && Math.hypot(v.x, v.z) < 5) return 'in';   // straight in the hole
     if(vy > 1.0){
-      const bite = (gty==='green' || gty==='fair') ? Math.min(0.5, f.backspin*0.3) : 0;     // backspin checks it up on short grass
-      v.y = vy*S.e; v.x *= 1 - S.fr - bite; v.z *= 1 - S.fr - bite;
+      const top = Math.max(0, -f.spinV), short = gty==='green' || gty==='fair';
+      const bite = short ? Math.min(0.6, f.backspin*0.3*(1 + Math.max(0, f.spinV))) : 0;     // backspin checks it up on short grass
+      const fr = S.fr*(1 - 0.2*top);                                                         // topspin skips on
+      if(f.bounces===0 && short && f.spinV > 0.25) f.zip = Math.min(5, Math.hypot(v.x, v.z)*0.24*(f.spinV - 0.25)*Math.min(1.6, f.backspin))*(gty==='green' ? 1 : 0.55);
+      v.y = vy*S.e*(1 - 0.3*top); v.x *= 1 - fr - bite; v.z *= 1 - fr - bite;
       { const h2 = Math.hypot(v.x, v.z) || 1, k = f.side*0.25*h2; v.x += (-v.z/h2)*k; v.z += (v.x/h2)*k; }
       f.backspin *= 0.5; f.side *= 0.5;
       p.y = su.s + 0.025; f.bounces++; ev(w,'land'); return null;
     }
-    v.y = 0; f.on = su.on; ev(w,'land'); return 'land';
+    v.y = 0; f.on = su.on;
+    { const short = gty==='green' || gty==='fair', h = Math.hypot(v.x, v.z);
+      if(f.zip && short && h > 0.01){ const z = f.zip; v.x = -v.x/h*z; v.z = -v.z/h*z; f.zip = 0; }              // backspin grabs and spins it back
+      else if(f.spinV < -0.2 && h > 0){ const k = 1 + 0.1*(-f.spinV); v.x *= k; v.z *= k; } }                                                                 // topspin runs out
+    ev(w,'land'); return 'land';
   }
   if(f.t > 14 || outside(w, p.x, p.z) || p.y < -40) return 'ob-out';
   return null;

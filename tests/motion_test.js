@@ -24,7 +24,7 @@ const fakeMqtt = { connect(url, opts){
 const winL = {};
 function device(label, store){
   store = store || {};
-  class FakeEl { constructor(id){ this.id=id; this.h={}; this.style={}; this.value=''; this.textContent=''; this.innerHTML=''; this.disabled=false; const cl=new Set(['holeScreen','passScreen','pauseScreen','setupScreen','onlineScreen','waitBar','scoutBar','loading','olLobby','top','bottom'].includes(id) ? ['hidden'] : []); this.classList={add:c=>cl.add(c),remove:c=>cl.delete(c),toggle:(c,f)=>{ if(f===undefined?!cl.has(c):f) cl.add(c); else cl.delete(c);},contains:c=>cl.has(c)}; this.dataset={}; this.children=[]; }
+  class FakeEl { setAttribute(k,v){ this[k]=v; } constructor(id){ this.id=id; this.h={}; this.style={}; this.value=''; this.textContent=''; this.innerHTML=''; this.disabled=false; const cl=new Set(['holeScreen','passScreen','pauseScreen','setupScreen','onlineScreen','waitBar','scoutBar','loading','olLobby','top','bottom'].includes(id) ? ['hidden'] : []); this.classList={add:c=>cl.add(c),remove:c=>cl.delete(c),toggle:(c,f)=>{ if(f===undefined?!cl.has(c):f) cl.add(c); else cl.delete(c);},contains:c=>cl.has(c)}; this.dataset={}; this.children=[]; }
     addEventListener(t,f){ (this.h[t]=this.h[t]||[]).push(f); } fire(t,e){ (this.h[t]||[]).forEach(f=>f(e||{preventDefault(){}})); } getContext(){ return stub('ctx'); } setPointerCapture(){} appendChild(c){ this.children.push(c); } querySelectorAll(){ return []; } }
   const els = new Proxy({}, {get:(t,p)=>t[p]||(t[p]=new FakeEl(p))}), timers = []; let raf = null, now = 0;
   const ctx = { Core, THREE: makeTHREE(), console, Math, Date, JSON, Object, Array, String, Number, Map, Set, Promise, Proxy, Symbol, Float32Array, Uint8Array, Infinity, NaN, isNaN, parseInt,
