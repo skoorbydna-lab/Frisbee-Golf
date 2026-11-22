@@ -660,7 +660,7 @@ function simShot(power){
   return {pts, land:f.firstLand || land, end:{x:f.pos.x, y:f.pos.y, z:f.pos.z}, res};
 }
 function updatePreview(dt){
-  if(!GOLF || !(state==='aim' || state==='motion') || !W){ hidePreview(); return; }
+  if(!GOLF || !(state==='aim' || state==='motion' || (state==='scout' && scout.prev==='aim')) || !W){ hidePreview(); return; }
   prevT -= dt;
   const key = [lie.x.toFixed(2), lie.z.toFixed(2), yaw.toFixed(3), discKey].join('|');
   if(key===prevKey && prevT > 0) return;
