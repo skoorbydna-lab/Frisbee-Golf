@@ -613,10 +613,10 @@ function stepBall(w, f, dt){
   let ax = -0.0042*sp*rx, ay = -G - 0.0042*sp*v.y, az = -0.0042*sp*rz;
   const lift = 0.0016*f.backspin*sp*sp;                       // backspin holds the ball up
   ay += lift*(hs/sp); ax -= lift*(v.y/sp)*(rx/hs); az -= lift*(v.y/sp)*(rz/hs);
-  const lat = f.side*0.0011*sp*sp;                            // sidespin: + curves right (slice), - left (hook)
+  const lat = f.side*0.0034*sp*sp;                            // sidespin: + curves right (slice), - left (hook)
   ax += (-rz/hs)*lat; az += (rx/hs)*lat;
   v.x += ax*dt; v.y += ay*dt; v.z += az*dt; p.x += v.x*dt; p.y += v.y*dt; p.z += v.z*dt;
-  f.backspin *= 1 - 0.05*dt; f.side *= 1 - 0.05*dt; f.t += dt; f.spin += dt*25; if(p.y > (f.maxY ?? -1e9)) f.maxY = p.y;
+  f.backspin *= 1 - 0.05*dt; f.side *= 1 - 0.015*dt; f.t += dt; f.spin += dt*25; if(p.y > (f.maxY ?? -1e9)) f.maxY = p.y;
   collide(w, f, px, py, pz, false);
   const su = surface(w, p.x, p.z, py);
   if(p.y <= su.s + 0.02){
@@ -629,7 +629,9 @@ function stepBall(w, f, dt){
     const [B, db] = cupNear(w, p); if(db < 0.1 && Math.hypot(v.x, v.z) < 5) return 'in';   // straight in the hole
     if(vy > 1.0){
       const bite = (gty==='green' || gty==='fair') ? Math.min(0.5, f.backspin*0.3) : 0;     // backspin checks it up on short grass
-      v.y = vy*S.e; v.x *= 1 - S.fr - bite; v.z *= 1 - S.fr - bite; f.backspin *= 0.5; f.side *= 0.5;
+      v.y = vy*S.e; v.x *= 1 - S.fr - bite; v.z *= 1 - S.fr - bite;
+      { const h2 = Math.hypot(v.x, v.z) || 1, k = f.side*0.25*h2; v.x += (-v.z/h2)*k; v.z += (v.x/h2)*k; }
+      f.backspin *= 0.5; f.side *= 0.5;
       p.y = su.s + 0.025; f.bounces++; ev(w,'land'); return null;
     }
     v.y = 0; f.on = su.on; ev(w,'land'); return 'land';
