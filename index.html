@@ -159,7 +159,7 @@
     <button class="tour" id="recordsBtn">📜 Course records<small>Best rounds on each course, front 9, back 9 and all 18.</small></button>
     <button class="tour" id="rangeBtn">🎯 Driving range<small>Unlimited throws at target baskets, with a breakdown of every flick.</small></button>
     <button class="tour" id="practiceBtn">Practice round<small>The round you picked above, no opponents, gentle preset winds.</small></button>
-    <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div><div class="row" style="margin-top:6px"><button class="chip setS">Throw stats in rounds: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setW">Opponents' throws: watch</button></div><div class="row" style="margin-top:6px"><button class="chip setP">Disc flight: Arcade</button></div>
+    <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div><div class="row" style="margin-top:6px"><button class="chip setS">Throw stats in rounds: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setW">Opponents' throws: watch</button></div>
     <p style="font-size:12.5px;opacity:.8;margin-top:12px">✋ Touch the disc, slide <b>right</b> for hyzer (curves left), <b>left</b> for anhyzer (curves right).<br>👆 Flick up to throw. Faster and longer flicks go further; higher flicks fly higher.<br>🎯 Drag anywhere else to look around.<br>🔭 Two fingers (or Scout) fly the camera round the course to plan your shot.</p>
   </div>
 </div>
@@ -269,7 +269,7 @@
 <div class="overlay hidden" id="pauseScreen">
   <div class="card">
     <h2>Paused</h2>
-    <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div><div class="row" style="margin-top:6px"><button class="chip setS">Throw stats in rounds: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setW">Opponents' throws: watch</button></div><div class="row" style="margin-top:6px"><button class="chip setP">Disc flight: Arcade</button></div>
+    <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div><div class="row" style="margin-top:6px"><button class="chip setS">Throw stats in rounds: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setW">Opponents' throws: watch</button></div>
     <button class="btn" id="resumeBtn">Resume</button><br>
     <button class="btn alt" id="quitBtn">Quit to menu</button>
   </div>
@@ -816,17 +816,11 @@ function stepFlight(w, f, D, dt){
   if(!(f.leafT && f.t - f.leafT < 0.15)) ay += G*Math.min(0.85, Math.pow(hRel/D.lv, 1.3))*Math.max(0, 1 - climb*2.5);
   const fx = v.x/h, fz = v.z/h; const rgx = -fz, rgz = fx;
   const sf = f.v0/D.max;
-  let lat;
-  if(w.real){
-    // realistic: the disc reacts to its AIRSPEED (headwind keeps it fast so it turns over, tailwind slows it so it fades early),
-    // tilt curves about half as much, and crosswind under the low side lifts it while wind on the top pushes it down
-    const s = Math.min(1.25, hRel/Math.max(f.v0,1));
-    lat = (-D.turn*1.3*s*s*sf*sf) - D.fade*1.8*Math.pow(Math.max(0, 1-s),1.2)*sf + f.relT*3.0*Math.sqrt(Math.min(1,s))*(0.5+0.5*sf);
-    if(!(f.leafT && f.t - f.leafT < 0.15)) ay += -f.relT*(wx*rgx + wz*rgz)*0.12*Math.min(1, hRel/D.lv);
-  } else {
-    const s = Math.min(1, h/Math.max(f.v0,1));
-    lat = (-D.turn*1.3*s*s*sf*sf) - D.fade*1.8*Math.pow(1-s,1.2)*sf + f.relT*6.5*Math.sqrt(s)*(0.5+0.5*sf);
-  }
+  // the disc reacts to its AIRSPEED (a headwind keeps it fast so it turns over, a tailwind slows it so it fades early);
+  // a crosswind under the low side of a tilted disc lifts it, wind on the top pushes it down
+  const s = Math.min(1.25, hRel/Math.max(f.v0,1));
+  const lat = (-D.turn*1.3*s*s*sf*sf) - D.fade*1.8*Math.pow(Math.max(0, 1-s),1.2)*sf + f.relT*3.0*Math.sqrt(Math.min(1,s))*(0.5+0.5*sf);
+  if(!(f.leafT && f.t - f.leafT < 0.15)) ay += -f.relT*(wx*rgx + wz*rgz)*0.12*Math.min(1, hRel/D.lv);
   ax += rgx*lat; az += rgz*lat;
   v.x += ax*dt; v.y += ay*dt; v.z += az*dt;
   p.x += v.x*dt; p.y += v.y*dt; p.z += v.z*dt;
@@ -1817,7 +1811,7 @@ function buildHole(i){
   const isRange = i==='range'; flags = [];
   if(course){ scene.remove(course.group); course.group.traverse(o=>{ if(o.geometry && !Object.values(GEO).includes(o.geometry)) o.geometry.dispose(); }); }
   const H = isRange ? C.RANGE : RH[i];
-  W = C.makeWorld(H); W.real = settings.physics==='real';
+  W = C.makeWorld(H);
   const group = new THREE.Group(); scene.add(group);
   const r = C.rng(H.seed*13 + 1);
   buildTerrain(group);
@@ -2343,6 +2337,39 @@ const swipeCv = $('swipe'), sctx = swipeCv.getContext('2d');
 function sizeSwipe(){ const d = Math.min(window.devicePixelRatio||1, 2); swipeCv.width = innerWidth*d; swipeCv.height = innerHeight*d; sctx.setTransform(d,0,0,d,0,0); }
 let gest = null, swipeFade = [], swipeFadeT = 0;
 const HOLD_REST = new THREE.Vector3(0, -0.2, -0.6);
+// ---- disc putting: near the basket with the putter, swipe LENGTH alone sets power (easier to judge than flick speed),
+// on a scale that fits the putt, with a marker on the bar showing the length that should reach the basket ----
+const dputt = {on:false, need:null, vmax:0, key:'', t:0};
+function discPuttActive(){ return !GOLF && W && discKey==='putter' && (state==='aim' || state==='flick') && !(mode==='online' && cur!==myIdx) && distToBasket(lie) < 40; }
+function simDisc(speed){
+  const D = C.DISCS.putter, [hw, hh] = viewHalf(1), sy = -(0.4 - 0.5)*2*hh, pitchOff = Math.atan2(sy, 1);
+  const lp = Math.max(-0.05, Math.min(0.85, pitch + pitchOff*0.85 + 0.1));
+  camera.updateMatrixWorld(); const p0 = HOLD_REST.clone(); camera.localToWorld(p0); p0.y = Math.max(C.surface(W, p0.x, p0.z, p0.y + 1).s + 0.3, p0.y);
+  const f = C.newFlight({x:p0.x, y:p0.y, z:p0.z}, {x:-Math.sin(yaw)*Math.cos(lp)*speed, y:Math.sin(lp)*speed, z:-Math.cos(yaw)*Math.cos(lp)*speed}, 0);
+  const ev0 = W.events.length; let st = 'flight', res = null;
+  for(let i=0;i<1500;i++){ const e = st==='flight' ? C.stepFlight(W, f, D, 1/60) : C.stepRoll(W, f, 1/60); if(e==='land'){ st = 'roll'; continue; } if(e){ res = e; break; } }
+  W.events.length = ev0;
+  return {res, d:Math.hypot(f.pos.x - lie.x, f.pos.z - lie.z)};
+}
+function updateDiscPutt(dt){
+  const t = $('powerTick');
+  if(!discPuttActive()){ if(dputt.on){ dputt.on = false; if(!GOLF) t.style.display = 'none'; } return; }
+  if(!dputt.on && state==='aim'){ $('powerLabel').textContent = '🎯 Putting: swipe length sets power, stop at the marker'; $('power').style.width = '0%'; }
+  dputt.on = true; dputt.t -= dt;
+  const key = [lie.x.toFixed(1), lie.z.toFixed(1), yaw.toFixed(2), pitch.toFixed(2), Math.round(W.wind.x), Math.round(W.wind.z)].join('|');
+  if(key !== dputt.key || dputt.t <= 0){
+    dputt.key = key; dputt.t = 0.6;
+    const target = distToBasket(lie), Dm = C.DISCS.putter.max;
+    // full-length swipe reaches about 1.6x the distance (at least 10 m)
+    let lo = 2, hi = Dm; const want = Math.max(10, target*1.6);
+    for(let k=0;k<10;k++){ const mid = (lo+hi)/2; if(simDisc(mid).d < want) lo = mid; else hi = mid; }
+    dputt.vmax = hi;
+    let a = 0, b = 1, need = null;
+    for(let k=0;k<10;k++){ const m = (a+b)/2, r = simDisc(dputt.vmax*(0.3 + 0.7*m)); if(r.res==='in'){ need = m; break; } if(r.d < target) a = m; else b = m; }
+    dputt.need = need ?? (a+b)/2;
+  }
+  t.style.display = 'block'; t.style.left = (dputt.need*100).toFixed(1) + '%';
+}
 let holdTilt = 0;
 function viewHalf(depth){ const hh = depth*Math.tan(camera.fov*Math.PI/360); return [hh*camera.aspect, hh]; }
 function discScreen(){ const [hw,hh] = viewHalf(-HOLD_REST.z); return {x:(0.5 + HOLD_REST.x/hw/2)*innerWidth, y:(0.5 - HOLD_REST.y/hh/2)*innerHeight, r:Math.max(60, 0.095/hw/2*innerWidth*1.35)}; }
@@ -2428,6 +2455,12 @@ canvas.addEventListener('pointermove', e=>{
     }
     const n = gest.pts.length, a = gest.pts[Math.max(0,n-4)], b = gest.pts[n-1];
     const vy = -(b[1]-a[1]) / Math.max(1, b[2]-a[2]) * 1000 / innerHeight;
+    if(dputt.on && dputt.need != null){
+      gest.lowY = Math.max(gest.lowY ?? gest.pts[0][1], y); const len = Math.max(0, Math.min(1, (gest.lowY - y)/(0.65*innerHeight)));
+      $('power').style.width = (len*100).toFixed(0) + '%';
+      const on = Math.abs(len - dputt.need) < 0.04; if(on && !gest.buzzed){ gest.buzzed = true; try{ navigator.vibrate && navigator.vibrate(12); }catch(e){} } if(!on) gest.buzzed = false;
+      if(len > 0.03) $('powerLabel').textContent = `Putt ${(len*100).toFixed(0)}%` + (on ? ' ✓ release now' : len < dputt.need ? ' · keep going' : ' · too far');
+    }
     if(vy < 0.6){ const t = tiltFromX(x); if(t !== holdTilt){ holdTilt = t; $('powerLabel').textContent = tiltName(holdTilt) + ' · flick up'; } }
   }
   gest.lx = x; gest.ly = y;
@@ -2589,8 +2622,10 @@ function doThrow(f){
   throwPath = []; recT = 0; recAcc = 1;
   strokes++; lastLie.copy(lie);
   const D = C.DISCS[discKey];
+  const putting = discPuttActive() && dputt.vmax > 0;
+  if(putting){ f.power = Math.max(0.02, Math.min(1, (f.lenFrac || 0)/0.65)); f.putt = true; }
   power = f.power; release = f.rel;
-  const speed = D.max*(0.3 + 0.7*power);
+  const speed = (putting ? dputt.vmax : D.max)*(0.3 + 0.7*power);
   const [hw0, hh0] = viewHalf(1);
   const sx = (f.aimX/innerWidth - 0.5)*2*hw0, sy = -(f.aimY/innerHeight - 0.5)*2*hh0;
   const yawOff = Math.atan2(sx, 1), pitchOff = Math.atan2(sy, Math.hypot(sx, 1));
@@ -3338,9 +3373,6 @@ document.querySelectorAll('.setW').forEach(b=>b.addEventListener('click', toggle
 $('waitBar').addEventListener('click', e=>{ if(e.target && e.target.id==='waitSkip') toggleAutoSkip(); });
 $('autoSkipBtn').addEventListener('click', toggleAutoSkip);
 renderAutoSkip();
-function renderPhys(){ document.querySelectorAll('.setP').forEach(b=>{ b.textContent = 'Disc flight: ' + (settings.physics==='real' ? 'Realistic (gentler curves, real wind)' : 'Arcade (big curves)'); b.classList.toggle('on', settings.physics==='real'); }); if(W) W.real = settings.physics==='real'; }
-document.querySelectorAll('.setP').forEach(b=>b.addEventListener('click', ()=>{ settings.physics = settings.physics==='real' ? 'arcade' : 'real'; try{ localStorage.setItem(SET_KEY, JSON.stringify(settings)); }catch(e){} renderPhys(); }));
-renderPhys();
 function finishReplay(skipped){
   $('skipBar').classList.add('hidden');
   const m = replay.m; replay = null; const p = applyThrow(m);
@@ -3522,7 +3554,7 @@ function frame(){
   if(state!=='motion' && mo.phase!=='off' && mo.phase!=='ready') mo.phase = 'off';
   if(statsTimer > 0){ statsTimer -= dt; if(statsTimer <= 0) $('statsCard').classList.add('hidden'); }
   if(state==='replay') stepReplay(dt);
-  updatePreview(dt); updateSlopeArrows(dt);
+  updatePreview(dt); updateDiscPutt(dt); updateSlopeArrows(dt);
   if(mode==='online' && flying && (state==='flight' || state==='roll' || state==='rest') && cur===myIdx && throwPath){
     recT += dt; recAcc += dt;
     if(recAcc >= 1/30 && throwPath.length < 900){ recAcc = 0; const tl = dm.userData.tilt; throwPath.push([+recT.toFixed(3), +dm.position.x.toFixed(2), +dm.position.y.toFixed(2), +dm.position.z.toFixed(2), +tl.rotation.z.toFixed(2), +tl.rotation.x.toFixed(2), +dm.rotation.y.toFixed(2)]); }

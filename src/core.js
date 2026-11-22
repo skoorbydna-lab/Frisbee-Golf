@@ -539,17 +539,11 @@ function stepFlight(w, f, D, dt){
   if(!(f.leafT && f.t - f.leafT < 0.15)) ay += G*Math.min(0.85, Math.pow(hRel/D.lv, 1.3))*Math.max(0, 1 - climb*2.5);
   const fx = v.x/h, fz = v.z/h; const rgx = -fz, rgz = fx;
   const sf = f.v0/D.max;
-  let lat;
-  if(w.real){
-    // realistic: the disc reacts to its AIRSPEED (headwind keeps it fast so it turns over, tailwind slows it so it fades early),
-    // tilt curves about half as much, and crosswind under the low side lifts it while wind on the top pushes it down
-    const s = Math.min(1.25, hRel/Math.max(f.v0,1));
-    lat = (-D.turn*1.3*s*s*sf*sf) - D.fade*1.8*Math.pow(Math.max(0, 1-s),1.2)*sf + f.relT*3.0*Math.sqrt(Math.min(1,s))*(0.5+0.5*sf);
-    if(!(f.leafT && f.t - f.leafT < 0.15)) ay += -f.relT*(wx*rgx + wz*rgz)*0.12*Math.min(1, hRel/D.lv);
-  } else {
-    const s = Math.min(1, h/Math.max(f.v0,1));
-    lat = (-D.turn*1.3*s*s*sf*sf) - D.fade*1.8*Math.pow(1-s,1.2)*sf + f.relT*6.5*Math.sqrt(s)*(0.5+0.5*sf);
-  }
+  // the disc reacts to its AIRSPEED (a headwind keeps it fast so it turns over, a tailwind slows it so it fades early);
+  // a crosswind under the low side of a tilted disc lifts it, wind on the top pushes it down
+  const s = Math.min(1.25, hRel/Math.max(f.v0,1));
+  const lat = (-D.turn*1.3*s*s*sf*sf) - D.fade*1.8*Math.pow(Math.max(0, 1-s),1.2)*sf + f.relT*3.0*Math.sqrt(Math.min(1,s))*(0.5+0.5*sf);
+  if(!(f.leafT && f.t - f.leafT < 0.15)) ay += -f.relT*(wx*rgx + wz*rgz)*0.12*Math.min(1, hRel/D.lv);
   ax += rgx*lat; az += rgz*lat;
   v.x += ax*dt; v.y += ay*dt; v.z += az*dt;
   p.x += v.x*dt; p.y += v.y*dt; p.z += v.z*dt;
