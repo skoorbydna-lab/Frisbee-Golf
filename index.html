@@ -149,6 +149,7 @@
     <button class="tour" id="onlineBtn">🌐 Online play<small>2–4 players on their own phones. Host a game and share the code.</small></button>
     <button class="tour" id="localBtn">👥 Pass &amp; play<small>2–4 players on one phone. Furthest from the basket throws next.</small></button>
     <button class="tour" id="golferBtn">🧑 Your golfer<small>Change your golfer's look, name and build.</small></button>
+    <button class="tour" id="recordsBtn">📜 Course records<small>Best rounds on each course, front 9, back 9 and all 18.</small></button>
     <button class="tour" id="rangeBtn">🎯 Driving range<small>Unlimited throws at target baskets, with a breakdown of every flick.</small></button>
     <button class="tour" id="practiceBtn">Practice round<small>The round you picked above, no opponents, gentle preset winds.</small></button>
     <div class="row" style="margin-top:10px"><button class="chip setX">Invert left/right: Off</button><button class="chip setY">Invert up/down: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setG">Graphics: Realistic</button></div><div class="row" style="margin-top:6px"><button class="chip setS">Throw stats in rounds: Off</button></div><div class="row" style="margin-top:6px"><button class="chip setW">Opponents' throws: watch</button></div>
@@ -167,6 +168,18 @@
   </div>
 </div>
 
+<div class="overlay hidden" id="recScreen">
+  <div class="card">
+    <h2 style="margin:0">📜 Course records</h2>
+    <p id="recSport" style="margin:2px 0 8px;font-size:13px;opacity:.75"></p>
+    <div class="row" id="recCourse"></div>
+    <div class="row" id="recLen" style="margin-top:6px"></div>
+    <p id="recPar" style="margin:6px 0 0;font-size:13px;font-weight:600"></p>
+    <table class="lb" id="recList"></table>
+    <p style="font-size:12px;opacity:.7;margin:6px 0">Finished rounds on this phone: practice, tournaments, pass &amp; play and online. Shuffle and Quick 3 aren't recorded because their holes change.</p>
+    <button class="btn" id="recClose">Close</button>
+  </div>
+</div>
 <div class="overlay hidden" id="setupScreen">
   <div class="card">
     <h2>Pass &amp; play</h2>
@@ -2623,7 +2636,56 @@ function showHoleCard(label){
   $('nextBtn').disabled = mode==='online' && !net.host; if($('nextBtn').disabled) $('nextBtn').textContent = 'Waiting for the host…';
   $('holeScreen').classList.remove('hidden');
 }
-function finishRound(){
+// ---- course records: best rounds per sport / course / length, kept on this phone ----
+const REC_KEY = 'discgolf-records', REC_COURSES = ['classic','open','canyon','island'], REC_LENS = [['front','Front 9'],['back','Back 9'],['all','All 18']];
+function loadRecs(){ try{ return JSON.parse(localStorage.getItem(REC_KEY)) || {}; }catch(e){ return {}; } }
+function recBoardKey(sport, course, len){ return `${sport}|${course}|${len}`; }
+function recordable(){ return REC_COURSES.includes(roundInfo.course) && ['front','back','all'].includes(roundInfo.key) && RH.length === (roundInfo.key==='all' ? 18 : 9); }
+function humanName(p){ if(p.name && p.name!=='You') return p.name; return (settings.golferName || (()=>{ try{ return localStorage.getItem('discgolf-olname'); }catch(e){ return ''; } })() || 'You').slice(0,14); }
+function saveRecords(){
+  if(!recordable()) return [];
+  const recs = loadRecs(), k = recBoardKey(GOLF ? 'golf' : 'disc', roundInfo.course, roundInfo.key), board = recs[k] || [];
+  const par = RH.reduce((a,h)=>a + h.par, 0), when = Date.now(), how = mode==='tour' ? C.TOURS[tier].name : mode==='online' ? 'Online' : mode==='local' ? 'Pass & play' : 'Practice';
+  const mine = [];
+  for(const p of players){
+    if(p.cpu || p.scores.length !== RH.length || p.scores.some(v=>!(v > 0))) continue;
+    const e = {name:humanName(p), total:p.scores.reduce((a,b)=>a+b,0), par, when, how, id:Math.random().toString(36).slice(2,8)};
+    board.push(e); mine.push(e);
+  }
+  board.sort((a,b)=>a.total - b.total || a.when - b.when);
+  recs[k] = board.slice(0, 20);
+  try{ localStorage.setItem(REC_KEY, JSON.stringify(recs)); }catch(e){}
+  return mine.map(e=>({e, rank:recs[k].indexOf(e) + 1})).filter(o=>o.rank > 0);
+}
+let recSel = {course:'classic', len:'front'};
+function renderRecs(){
+  const sport = GOLF ? 'golf' : 'disc', recs = loadRecs(), board = recs[recBoardKey(sport, recSel.course, recSel.len)] || [];
+  $('recSport').textContent = GOLF ? '⛳ Golf' : '🥏 Disc golf';
+  $('recCourse').innerHTML = REC_COURSES.map(c=>`<button class="chip${c===recSel.course ? ' on' : ''}" data-rc="${c}">${courseLabel(c)}</button>`).join('');
+  $('recLen').innerHTML = REC_LENS.map(([k,n])=>`<button class="chip${k===recSel.len ? ' on' : ''}" data-rl="${k}">${n}</button>`).join('');
+  const R = makeRound(recSel.course, recSel.len), par = R.idx.reduce((a,i)=>a + C.HOLES[i].par, 0);
+  $('recPar').textContent = `Par ${par}`;
+  const d = t=>new Date(t).toLocaleDateString(undefined, {day:'numeric', month:'short', year:'2-digit'});
+  $('recList').innerHTML = board.length ? board.slice(0, 10).map((e,i)=>`<tr${i===0 ? ' class="me"' : ''}><td>${i===0 ? '🏆' : i+1}</td><td>${esc(e.name)}<br><span style="font-size:11px;opacity:.7">${esc(e.how)} · ${d(e.when)}</span></td><td class="rel">${relTxt(e.total - e.par)}</td><td>${e.total}</td></tr>`).join('')
+    : `<tr><td>–</td><td>No finished rounds yet. Play the ${courseLabel(recSel.course)} ${REC_LENS.find(x=>x[0]===recSel.len)[1]} to set the first record.</td><td></td><td></td></tr>`;
+  document.querySelectorAll('[data-rc]').forEach(b=>b.onclick = ()=>{ recSel.course = b.dataset.rc; renderRecs(); });
+  document.querySelectorAll('[data-rl]').forEach(b=>b.onclick = ()=>{ recSel.len = b.dataset.rl; renderRecs(); });
+}
+$('recordsBtn').addEventListener('click', ()=>{
+  const c = settings.course, k = settings.round;
+  recSel = {course:REC_COURSES.includes(c) ? c : 'classic', len:['front','back','all'].includes(k) ? k : 'front'};
+  renderRecs(); $('recScreen').classList.remove('hidden');
+});
+$('recClose').addEventListener('click', ()=>$('recScreen').classList.add('hidden'));
+function recNote(made){
+  const best = made.filter(o=>o.rank <= 10).sort((a,b)=>a.rank - b.rank)[0];
+  if(!best) return '';
+  const where = `${courseLabel(roundInfo.course)} ${REC_LENS.find(x=>x[0]===roundInfo.key)[1]}`;
+  return best.rank===1 ? `<p style="margin:6px 0;font-weight:700;color:#e08a00">🏆 New course record on ${where}: ${esc(best.e.name)}, ${relTxt(best.e.total - best.e.par)}!</p>`
+                      : `<p style="margin:6px 0;font-weight:600">📜 ${esc(best.e.name)} is ${ord(best.rank)} on the ${where} records.</p>`;
+}
+function finishRound(restored){
+  const recMade = restored ? [] : saveRecords();
   const tot = you.scores.reduce((a,s,i)=>a + s - RH[i].par, 0);
   $('hsTitle').textContent = mode==='tour' ? C.TOURS[tier].name : multi() ? 'Final scores' : 'Practice round';
   $('card').innerHTML = scorecardHTML();
@@ -2645,6 +2707,7 @@ function finishRound(){
     $('lb').innerHTML = leaderboardHTML(9);
     if(me.n===1) sfx.cheer();
   } else { $('hsBig').textContent = relTxt(tot); $('hsSub').textContent = `${you.scores.reduce((a,b)=>a+b,0)} throws over ${RH.length} hole${RH.length>1?'s':''}.`; $('lb').innerHTML = ''; }
+  if(recMade.length){ const n = recNote(recMade); if(n) $('hsSub').innerHTML = esc($('hsSub').textContent) + n; }
   $('nextBtn').textContent = 'Back to menu'; $('nextBtn').disabled = false;
   $('holeScreen').classList.remove('hidden');
   state = 'finished';
@@ -2904,7 +2967,7 @@ function applySnapPlayers(sn){
 }
 function enterPhase(sn){
   $('holeScreen').classList.add('hidden'); $('skipBar').classList.add('hidden');
-  if(sn.phase==='finished'){ finishRound(); return; }
+  if(sn.phase==='finished'){ finishRound(true); return; }
   const n = nextPlayer();
   if(n < 0){ for(const k in discs) discs[k].visible = false; state = 'holed'; showHoleCard(''); return; }
   loadPlayer(n); onlineTurn(false);

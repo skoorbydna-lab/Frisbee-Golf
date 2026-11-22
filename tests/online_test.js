@@ -63,5 +63,6 @@ while(guard++ < 12000){
   if(A.dg.state==='finished' && B.dg.state==='finished') break;
 }
 console.log('loops', guard, 'throw turns', JSON.stringify(throws));
+for(const D of [A,B]) console.log(D.label, 'records:', D.store['discgolf-records'] || 'none', '| note:', D.els.hsSub.innerHTML.slice(0,160));
 for(const D of [A,B]) console.log(D.label, D.dg.state, 'hole', D.dg.holeIdx+1, D.dg.players.map(p=>p.name+':'+p.scores.join(',')).join(' | '), '→', D.els.hsBig.textContent);
 })();
