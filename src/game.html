@@ -65,7 +65,7 @@
   #statsCard.compact .det{display:none}
   #statsCard .more{float:right;font-size:11px;opacity:.6;font-weight:600}
   #statsCard .stip{margin-top:4px;padding-top:4px;border-top:2px dashed rgba(20,32,43,.3);font-weight:600}
-  body.busy #discRow, body.busy #motionRow, body.busy #clubRow, body.busy #rangeRow, body.busy #hint{display:none!important}
+  body.busy #discRow, body.busy #capRow, body.busy #motionRow, body.busy #clubRow, body.busy #rangeRow, body.busy #hint{display:none!important}
   .edrow{margin-top:8px} .edrow b{display:block;font-size:13px;margin-bottom:3px}
   .sw{display:flex;gap:6px;flex-wrap:wrap} .sw button{width:32px;height:32px;border-radius:50%;border:3px solid var(--ink);box-shadow:0 2px 0 var(--ink);padding:0}
   .sw button.on{outline:3px solid var(--orange);outline-offset:2px}
@@ -125,6 +125,10 @@
     <button class="chip" data-disc="driver">Driver<small>~120 m</small></button>
     <button class="chip" data-disc="mid">Mid-range<small>~85 m</small></button>
     <button class="chip" data-disc="putter">Putter<small>~45 m</small></button>
+  </div>
+  <div class="row" id="capRow" style="align-items:center;gap:8px;background:var(--cream);border:3px solid var(--ink);border-radius:12px;box-shadow:0 3px 0 var(--ink);padding:4px 10px">
+    <span id="capTxt" style="font:500 13.5px Fredoka,sans-serif;white-space:nowrap;min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis">Power 100%</span>
+    <input id="capSlider" type="range" min="10" max="100" step="5" value="100" style="flex:1;min-width:90px;accent-color:#ff8a1f;height:28px">
   </div>
   <div class="row"><div id="powerWrap"><div id="power"></div><div id="powerTick" style="display:none;position:absolute;top:-2px;bottom:-2px;width:4px;margin-left:-2px;background:#fff;border:1.5px solid #14202b;border-radius:2px;z-index:2"></div><div id="powerLabel">Touch the disc, then flick up</div></div></div>
 </div>
@@ -684,6 +688,8 @@ prevRing.rotation.x = -Math.PI/2; prevRing.renderOrder = 4; prevRing.visible = f
 let prevLabel = null, prevKey = '', prevT = 0;
 // putter scale: a full backswing rolls about twice the distance to the hole (in steps), so most putts sit around 60-70% and short ones aren't fiddly
 const PUTT_TIERS = [2, 3, 4.5, 6, 8, 11, 15, 20, 26];
+let powerCap = 1, capAuto = true, relPitch = 0.12;          // disc power selector (see updateCapPred)
+const capPred = {key:'', t:0, pt:null, d:0, res:null};
 let puttTier = null;    // chosen by the preview so the pace needed lands in the middle of the bar
 function puttBaseTier(){ const d = W && lie ? distToBasket(lie) : 10, i = PUTT_TIERS.findIndex(t=>t >= d*2); return i < 0 ? PUTT_TIERS.length-1 : i; }
 function puttMax(){ return PUTT_TIERS[puttTier ?? puttBaseTier()]; }
@@ -1282,6 +1288,8 @@ function bigMapDraw(){
   const T = targetOf(lie), [tx, ty] = f(T.x, T.z); txt(`${distToBasket(lie).toFixed(0)} m`, tx, ty - 11*d, '#ffd9c9');
   // other players
   if(multi()) players.forEach((p,i)=>{ if(i===cur || p.done) return; const [px,py] = f(p.lie.x, p.lie.z); g.fillStyle = p.color; g.strokeStyle = '#14202b'; g.lineWidth = 1.5*d; g.beginPath(); g.arc(px, py, 5*d, 0, 7); g.fill(); g.stroke(); });
+  if(!GOLF && capPred.pt && capActive()){ const [px, py] = f(capPred.pt.x, capPred.pt.z); g.strokeStyle = '#ffd23f'; g.lineWidth = 3*d; g.beginPath(); g.arc(px, py, 8*d, 0, 7); g.stroke();
+    txt(`${Math.round(powerCap*100)}% · ${capPred.d.toFixed(0)} m`, px, py + 22*d, '#ffd23f'); }
   // your aim point
   if(big.aim){ const [ax, ay] = f(big.aim.x, big.aim.z), dd = Math.hypot(big.aim.x - lie.x, big.aim.z - lie.z);
     g.strokeStyle = '#fff'; g.lineWidth = 2.5*d; g.beginPath(); g.arc(ax, ay, 9*d, 0, 7); g.moveTo(ax - 14*d, ay); g.lineTo(ax + 14*d, ay); g.moveTo(ax, ay - 14*d); g.lineTo(ax, ay + 14*d); g.stroke();
@@ -1309,7 +1317,7 @@ function bigMapAim(e){
   const [x, z] = big.tf.inv((e.clientX - r.left)*k, (e.clientY - r.top)*k);
   if(Math.hypot(x - lie.x, z - lie.z) < 3) return;
   yaw = Math.atan2(-(x - lie.x), -(z - lie.z)); big.aim = {x, z}; prevKey = '';
-  if(GOLF) updatePreview(0);
+  if(GOLF) updatePreview(0); else updateCapPred(0);
   bigMapDraw();
 }
 $('map').addEventListener('click', e=>{ e.stopPropagation(); openBigMap(); });
@@ -1328,6 +1336,10 @@ function drawMap(){
     mctx.strokeStyle = 'rgba(255,255,255,.9)'; mctx.lineWidth = 1.5*d; mctx.setLineDash([3*d,3*d]);
     mctx.beginPath(); mctx.moveTo(lx, ly); const [ex, ey] = mapTf.f(lie.x + fx*60, lie.z + fz*60); mctx.lineTo(ex, ey); mctx.stroke(); mctx.setLineDash([]);
   }
+  if(!GOLF && capPred.pt && capActive()){ const [px, py] = mapTf.f(capPred.pt.x, capPred.pt.z);
+    mctx.strokeStyle = '#ffd23f'; mctx.lineWidth = 1.6*d; mctx.beginPath(); mctx.arc(px, py, 3.5*d, 0, 7); mctx.stroke();
+    mctx.font = `700 ${9*d}px Fredoka, sans-serif`; mctx.textAlign = 'center'; mctx.lineWidth = 3*d; mctx.strokeStyle = 'rgba(20,32,43,.9)'; const t = Math.round(powerCap*100) + '%';
+    const ty = py - 6*d < 9*d ? py + 13*d : py - 6*d; mctx.strokeText(t, px, ty); mctx.fillStyle = '#ffd23f'; mctx.fillText(t, px, ty); }
   if(trailPts.length > 1){ mctx.strokeStyle = '#ffffff'; mctx.lineWidth = 1.2*d; mctx.beginPath(); trailPts.forEach((p,i)=>{ const [x,y] = mapTf.f(p[0], p[2]); i ? mctx.lineTo(x,y) : mctx.moveTo(x,y); }); mctx.stroke(); }
   mctx.fillStyle = '#ffffff'; mctx.strokeStyle = '#14202b'; mctx.lineWidth = 1.5*d; mctx.beginPath(); mctx.arc(lx, ly, 3*d, 0, 7); mctx.fill(); mctx.stroke();
   if(multi()) players.forEach((p,i)=>{ if(i===cur || p.done) return; const [px,py] = mapTf.f(p.lie.x, p.lie.z); mctx.fillStyle = p.color; mctx.beginPath(); mctx.arc(px, py, 2.8*d, 0, 7); mctx.fill(); mctx.stroke(); });
@@ -1377,7 +1389,7 @@ function gearName(k){ return GOLF ? (C.CLUBS[k] || C.CLUBS.driver).name : (C.DIS
 function gearColor(k){ return GOLF ? '#ffffff' : (C.DISCS[k] || C.DISCS.driver).color; }
 function applySport(sport){
   GOLF = sport==='golf';
-  $('clubRow').classList.toggle('hidden', !GOLF); $('motionRow').classList.toggle('hidden', !GOLF); $('discRow').classList.toggle('hidden', GOLF);
+  $('clubRow').classList.toggle('hidden', !GOLF); $('motionRow').classList.toggle('hidden', !GOLF); $('discRow').classList.toggle('hidden', GOLF); $('capRow').classList.toggle('hidden', GOLF);
   for(const k in held) held[k].visible = false; discs.__ball.visible = false; renderMotion();
   $('hint').textContent = GOLF ? GOLF_HINT : DISC_HINT;
   $('powerLabel').textContent = GOLF ? 'Touch below the ball, pull back, swipe up' : 'Touch the disc, then flick up';
@@ -1499,7 +1511,7 @@ function spinParts(K, power, putt, side){
 }
 function setClub(k){ discKey = k; document.querySelectorAll('[data-club]').forEach(b=>b.classList.toggle('on', b.dataset.club===k)); if(mode==='range' || state==='aim') updateHUD && updateHUD(); }
 document.querySelectorAll('[data-club]').forEach(b=>b.addEventListener('click', ()=>{ setClub(b.dataset.club); renderSpin(); }));
-function setDisc(k){ if(GOLF) return setClub(C.CLUBS[k] ? k : 'driver'); discKey = k; document.querySelectorAll('[data-disc]').forEach(b=>b.classList.toggle('on', b.dataset.disc===k)); for(const j in held) held[j].visible = (j===k && (state==='aim' || state==='flick')); }
+function setDisc(k){ if(GOLF) return setClub(C.CLUBS[k] ? k : 'driver'); const changed = discKey !== k; discKey = k; if(changed && capAuto && W && state==='aim') autoCap(); document.querySelectorAll('[data-disc]').forEach(b=>b.classList.toggle('on', b.dataset.disc===k)); for(const j in held) held[j].visible = (j===k && (state==='aim' || state==='flick')); }
 document.querySelectorAll('[data-disc]').forEach(b=>b.addEventListener('click', ()=>setDisc(b.dataset.disc)));
 function targetOf(p){ if(mode!=='range') return W.basket; if(range.putt) return range.putt.B; let best = W.baskets[0], bd = 1e9; for(const b of W.baskets){ const e = Math.hypot(p.x-b.x, p.z-b.z); if(e < bd){ bd = e; best = b; } } return best; }
 function distToBasket(p){ const B = targetOf(p); return Math.hypot(p.x - B.x, p.z - B.z); }
@@ -1518,7 +1530,7 @@ function autoClub(){
   const d = distToBasket(lie), t = W.T(lie.x, lie.z).type;
   setClub(t==='green' || d < 14 ? 'putter' : d < 62 ? 'wedge' : d < 100 ? 'iron9' : d < 138 ? 'iron5' : 'driver');
 }
-function autoDisc(){ if(GOLF){ if(mode==='range') return setClub(C.CLUBS[discKey] ? discKey : 'driver'); return autoClub(); } if(mode==='range') return setDisc(discKey); const d = distToBasket(lie); setDisc(d < 22 ? 'putter' : d < 75 ? 'mid' : 'driver'); }
+function autoDisc(){ if(GOLF){ if(mode==='range') return setClub(C.CLUBS[discKey] ? discKey : 'driver'); return autoClub(); } capAuto = true; if(mode==='range'){ setDisc(discKey); autoCap(); return; } const d = distToBasket(lie); setDisc(d < 22 ? 'putter' : d < 75 ? 'mid' : 'driver'); autoCap(); }
 function updateHUD(){
   if(mode==='range' && range.putt){
     const P = range.putt, made = P.made.reduce((a,b)=>a+b,0), done = P.i*3 + P.k;
@@ -1621,38 +1633,46 @@ const swipeCv = $('swipe'), sctx = swipeCv.getContext('2d');
 function sizeSwipe(){ const d = Math.min(window.devicePixelRatio||1, 2); swipeCv.width = innerWidth*d; swipeCv.height = innerHeight*d; sctx.setTransform(d,0,0,d,0,0); }
 let gest = null, swipeFade = [], swipeFadeT = 0;
 const HOLD_REST = new THREE.Vector3(0, -0.2, -0.6);
-// ---- disc putting: near the basket with the putter, swipe LENGTH alone sets power (easier to judge than flick speed),
-// on a scale that fits the putt, with a marker on the bar showing the length that should reach the basket ----
-const dputt = {on:false, need:null, vmax:0, key:'', t:0};
-function discPuttActive(){ return !GOLF && W && discKey==='putter' && (state==='aim' || state==='flick') && !(mode==='online' && cur!==myIdx) && distToBasket(lie) < 40; }
-function simDisc(speed){
-  const D = C.DISCS.putter, [hw, hh] = viewHalf(1), sy = -(0.4 - 0.5)*2*hh, pitchOff = Math.atan2(sy, 1);
-  const lp = Math.max(-0.05, Math.min(0.85, pitch + pitchOff*0.85 + 0.1));
-  camera.updateMatrixWorld(); const p0 = HOLD_REST.clone(); camera.localToWorld(p0); p0.y = Math.max(C.surface(W, p0.x, p0.z, p0.y + 1).s + 0.3, p0.y);
+// ---- power selector (disc golf): pick a power % before the flick; a full flick then throws exactly that much.
+// The landing spot for a full flick is predicted on the real course (slope, trees, wind) and shown on the maps and the ground ---
+          // learns how high you usually let go, so the prediction matches your style
+function capActive(){ return !GOLF && W && (state==='aim' || state==='flick') && !(mode==='online' && cur!==myIdx); }
+function simDisc(key, speed){
+  const D = C.DISCS[key] || C.DISCS.driver, lp = Math.max(-0.05, Math.min(0.85, pitch + relPitch + 0.1));
+  const p0 = {x:lie.x - Math.sin(yaw)*0.6, y:lie.y + eyeH - 0.25, z:lie.z - Math.cos(yaw)*0.6}; p0.y = Math.max(C.surface(W, p0.x, p0.z, p0.y + 1).s + 0.3, p0.y);
   const f = C.newFlight({x:p0.x, y:p0.y, z:p0.z}, {x:-Math.sin(yaw)*Math.cos(lp)*speed, y:Math.sin(lp)*speed, z:-Math.cos(yaw)*Math.cos(lp)*speed}, 0);
   const ev0 = W.events.length; let st = 'flight', res = null;
-  for(let i=0;i<1500;i++){ const e = st==='flight' ? C.stepFlight(W, f, D, 1/60) : C.stepRoll(W, f, 1/60); if(e==='land'){ st = 'roll'; continue; } if(e){ res = e; break; } }
+  for(let i=0;i<2400;i++){ const e = st==='flight' ? C.stepFlight(W, f, D, 1/60) : C.stepRoll(W, f, 1/60); if(e==='land'){ st = 'roll'; continue; } if(e){ res = e; break; } }
   W.events.length = ev0;
-  return {res, d:Math.hypot(f.pos.x - lie.x, f.pos.z - lie.z)};
+  return {res, x:f.pos.x, z:f.pos.z, d:Math.hypot(f.pos.x - lie.x, f.pos.z - lie.z)};
 }
-function updateDiscPutt(dt){
-  const t = $('powerTick');
-  if(!discPuttActive()){ if(dputt.on){ dputt.on = false; if(!GOLF) t.style.display = 'none'; } return; }
-  if(!dputt.on && state==='aim'){ $('powerLabel').textContent = '🎯 Putting: swipe length sets power, stop at the marker'; $('power').style.width = '0%'; }
-  dputt.on = true; dputt.t -= dt;
-  const key = [lie.x.toFixed(1), lie.z.toFixed(1), yaw.toFixed(2), pitch.toFixed(2), Math.round(W.wind.x), Math.round(W.wind.z)].join('|');
-  if(key !== dputt.key || dputt.t <= 0){
-    dputt.key = key; dputt.t = 0.6;
-    const target = distToBasket(lie), Dm = C.DISCS.putter.max;
-    // full-length swipe reaches about 1.6x the distance (at least 10 m)
-    let lo = 2, hi = Dm; const want = Math.max(10, target*1.6);
-    for(let k=0;k<10;k++){ const mid = (lo+hi)/2; if(simDisc(mid).d < want) lo = mid; else hi = mid; }
-    dputt.vmax = hi;
-    let a = 0, b = 1, need = null;
-    for(let k=0;k<10;k++){ const m = (a+b)/2, r = simDisc(dputt.vmax*(0.3 + 0.7*m)); if(r.res==='in'){ need = m; break; } if(r.d < target) a = m; else b = m; }
-    dputt.need = need ?? (a+b)/2;
+function capSpeed(key, cap){ const D = C.DISCS[key] || C.DISCS.driver; return D.max*(0.3 + 0.7*cap); }
+$('capSlider').addEventListener('input', e=>{ setCap(+e.target.value/100, false); });
+['pointerdown','touchstart'].forEach(t=>$('capSlider').addEventListener(t, e=>e.stopPropagation()));
+function renderCap(){
+  const pc = Math.round(powerCap*100); $('capSlider').value = pc;
+  $('capTxt').innerHTML = `Power <b>${pc}%</b>` + (capPred.pt ? ` · full flick ≈ <b>${capPred.d.toFixed(capPred.d < 20 ? 1 : 0)} m</b>` + (capPred.res==='in' ? ' 🎯' : '') : '');
+}
+function setCap(c, auto){ powerCap = Math.max(0.1, Math.min(1, c)); capAuto = !!auto; capPred.key = ''; renderCap(); }
+// at each new turn: 100%, except with the putter near the basket, where it picks the power that reaches the chains
+function autoCap(){
+  if(GOLF || !W) return; capPred.key = '';
+  if(discKey==='putter' && distToBasket(lie) < 40){
+    const target = distToBasket(lie); let a = 0.1, b = 1, best = 1;
+    for(let k=0;k<9;k++){ const m = (a+b)/2, r = simDisc('putter', capSpeed('putter', m)); if(r.res==='in'){ best = m; break; } if(r.d < target) a = m; else b = m; best = (a+b)/2; }
+    setCap(Math.round(best*100/5)*5/100, true);
+  } else setCap(1, true);
+}
+function updateCapPred(dt){
+  if(!capActive()){ if(!GOLF) prevRing.visible = false; return; }
+  capPred.t -= dt;
+  const key = [lie.x.toFixed(1), lie.z.toFixed(1), yaw.toFixed(2), pitch.toFixed(2), discKey, powerCap, Math.round(W.wind.x*2), Math.round(W.wind.z*2)].join('|');
+  if(key !== capPred.key || capPred.t <= 0){
+    capPred.key = key; capPred.t = 0.7;
+    const r = simDisc(discKey, capSpeed(discKey, powerCap)); capPred.pt = {x:r.x, z:r.z}; capPred.d = r.d; capPred.res = r.res;
+    renderCap();
   }
-  t.style.display = 'block'; t.style.left = (dputt.need*100).toFixed(1) + '%';
+  prevRing.position.set(capPred.pt.x, meshH(capPred.pt.x, capPred.pt.z) + 0.06, capPred.pt.z); prevRing.visible = true;
 }
 let holdTilt = 0;
 function viewHalf(depth){ const hh = depth*Math.tan(camera.fov*Math.PI/360); return [hh*camera.aspect, hh]; }
@@ -1739,12 +1759,6 @@ canvas.addEventListener('pointermove', e=>{
     }
     const n = gest.pts.length, a = gest.pts[Math.max(0,n-4)], b = gest.pts[n-1];
     const vy = -(b[1]-a[1]) / Math.max(1, b[2]-a[2]) * 1000 / innerHeight;
-    if(dputt.on && dputt.need != null){
-      gest.lowY = Math.max(gest.lowY ?? gest.pts[0][1], y); const len = Math.max(0, Math.min(1, (gest.lowY - y)/(0.65*innerHeight)));
-      $('power').style.width = (len*100).toFixed(0) + '%';
-      const on = Math.abs(len - dputt.need) < 0.04; if(on && !gest.buzzed){ gest.buzzed = true; try{ navigator.vibrate && navigator.vibrate(12); }catch(e){} } if(!on) gest.buzzed = false;
-      if(len > 0.03) $('powerLabel').textContent = `Putt ${(len*100).toFixed(0)}%` + (on ? ' ✓ release now' : len < dputt.need ? ' · keep going' : ' · too far');
-    }
     if(vy < 0.6){ const t = tiltFromX(x); if(t !== holdTilt){ holdTilt = t; $('powerLabel').textContent = tiltName(holdTilt) + ' · flick up'; } }
   }
   gest.lx = x; gest.ly = y;
@@ -1906,14 +1920,15 @@ function doThrow(f){
   throwPath = []; recT = 0; recAcc = 1;
   strokes++; lastLie.copy(lie);
   const D = C.DISCS[discKey];
-  const putting = discPuttActive() && dputt.vmax > 0;
-  if(putting){ f.power = Math.max(0.02, Math.min(1, (f.lenFrac || 0)/0.65)); f.putt = true; }
+  // a full flick (about 85% of the strongest) gives exactly the selected power
+  f.effort = f.power; f.cap = powerCap; f.power = Math.max(0.02, powerCap*Math.min(1, f.power/0.85));
   power = f.power; release = f.rel;
-  const speed = (putting ? dputt.vmax : D.max)*(0.3 + 0.7*power);
+  const speed = D.max*(0.3 + 0.7*power);
   const [hw0, hh0] = viewHalf(1);
   const sx = (f.aimX/innerWidth - 0.5)*2*hw0, sy = -(f.aimY/innerHeight - 0.5)*2*hh0;
   const yawOff = Math.atan2(sx, 1), pitchOff = Math.atan2(sy, Math.hypot(sx, 1));
   const launchPitch = Math.max(-0.05, Math.min(0.85, pitch + pitchOff*0.85 + 0.1));
+  relPitch = relPitch*0.7 + Math.max(-0.2, Math.min(0.5, pitchOff*0.85))*0.3;
   const ty = yaw - yawOff;
   const vel = {x:-Math.sin(ty)*Math.cos(launchPitch)*speed, y:Math.sin(launchPitch)*speed, z:-Math.cos(ty)*Math.cos(launchPitch)*speed};
   const [hw, hh] = viewHalf(-HOLD_REST.z);
@@ -1998,7 +2013,7 @@ function showStats(kind){
   const drift = Math.abs(side) < 1.5 ? 'dead straight' : `${Math.abs(side).toFixed(0)} m ${side < 0 ? 'left' : 'right'}`;
   const bar = (v,c)=>`<span class="sbar"><i style="width:${(v*100).toFixed(0)}%;background:${c}"></i></span>`;
   $('statsCard').innerHTML = `
-    <div class="srow"><span class="more">tap for more ▾</span><b>Power ${(f.power*100).toFixed(0)}%</b> ${bar(f.power,'#ff8a1f')}</div>
+    <div class="srow"><span class="more">tap for more ▾</span><b>Power ${(f.power*100).toFixed(0)}%</b> ${bar(f.power,'#ff8a1f')}${f.cap != null && f.cap < 1 ? ` <span style="opacity:.75">(set ${Math.round(f.cap*100)}%, flick ${Math.min(100, Math.round(f.effort/0.85*100))}%)</span>` : ''}</div>
     <div class="srow det">Speed ${bar(f.speedP,'#2a8fd6')} ${f.speedV.toFixed(1)} screens/s</div>
     <div class="srow det">Length ${bar(f.lengthP,'#3fbf5f')} ${(f.lenFrac*100).toFixed(0)}% of screen</div>
     <div class="srow det">${tiltTxt} · launch ${L.launchDeg.toFixed(0)}° · aim ${Math.abs(L.aimDeg) < 1 ? 'straight' : Math.abs(L.aimDeg).toFixed(0) + '° ' + (L.aimDeg > 0 ? 'right' : 'left')} · ${gearName(L.disc)}</div>
@@ -2291,7 +2306,7 @@ function puttTutorial(){
   ] : [
     ['Putting practice', 'Seven distances, three putts each, from 5 m to 30 m. Your best score is saved.<br><br>This quick guide shows how putting works.'],
     ['1 · Aim', 'Drag anywhere (not on the disc) to look at the basket. Aim at the <b>chains</b>, not the cage.<br><br>Tap the map to aim from above if you like.'],
-    ['2 · Power = swipe length', 'Near the basket with the putter, only <b>how far your finger travels</b> sets power. Speed doesn\'t matter.<br><br>Touch the disc, swipe up and let go at the <b>white marker</b> on the bar. It shows <b>"✓ release now"</b> with a buzz.'],
+    ['2 · Set the power', 'Use the <b>Power slider</b> above the bar. It picks a power that reaches the chains for you, and the <b>yellow ring</b> on the ground and maps shows where a full flick lands.<br><br>Then give it a <b>full, confident flick</b>. A full flick throws exactly the % you set. If you\'re short or long, nudge the slider 5%.'],
     ['3 · Height and tilt', 'Let go <b>around the middle</b> of the screen for a flat putt into the chains. Letting go higher lobs it.<br><br>Keep the disc <b>flat</b> (finger near the middle) unless you want it to curve. Wind on the range button makes it harder.']
   ];
 }
@@ -2330,7 +2345,7 @@ function puttStation(){
   lie.set(x, C.surface(W, x, z, 50).s + 0.02, z); lastLie.copy(lie);
   if(GOLF) setClub('putter'); else setDisc('putter');
   for(const k in discs) discs[k].visible = false; trailPts = []; updateTrail();
-  faceBasket(); state = 'aim'; setDisc(discKey); updateHUD(); prevKey = ''; dputt.key = '';
+  faceBasket(); state = 'aim'; setDisc(discKey); updateHUD(); prevKey = ''; autoCap();
 }
 function stopPuttDrill(){
   range.putt = null; $('rPutt').textContent = '🎯 Putting'; $('rPutt').classList.remove('on'); $('rFrom').classList.remove('hidden');
@@ -2916,7 +2931,7 @@ function frame(){
   if(state!=='motion' && mo.phase!=='off' && mo.phase!=='ready') mo.phase = 'off';
   if(statsTimer > 0){ statsTimer -= dt; if(statsTimer <= 0) $('statsCard').classList.add('hidden'); }
   if(state==='replay') stepReplay(dt);
-  updatePreview(dt); updateDiscPutt(dt); updateSlopeArrows(dt);
+  updatePreview(dt); updateCapPred(dt); updateSlopeArrows(dt);
   if(mode==='online' && flying && (state==='flight' || state==='roll' || state==='rest') && cur===myIdx && throwPath){
     recT += dt; recAcc += dt;
     if(recAcc >= 1/30 && throwPath.length < 900){ recAcc = 0; const tl = dm.userData.tilt; throwPath.push([+recT.toFixed(3), +dm.position.x.toFixed(2), +dm.position.y.toFixed(2), +dm.position.z.toFixed(2), +tl.rotation.z.toFixed(2), +tl.rotation.x.toFixed(2), +dm.rotation.y.toFixed(2)]); }
