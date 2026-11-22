@@ -429,7 +429,8 @@ function makeWorld(H){
   const T = makeTerrain(H);
   const O = genObstacles(H, T);
   const baskets = (H.baskets || [H.basket]).map(b=>({x:b[0], y:T(b[0], b[1]).h, z:b[1]}));
-  return Object.assign({H, T, basket:baskets[0], baskets, wind:{x:0,z:0}, wf:H.windFactor, events:[]}, O);
+  const ch = windCharacter(H);
+  return Object.assign({H, T, basket:baskets[0], baskets, wind:{x:0,z:0}, wf:H.windFactor, events:[], gust:ch.gust, swirl:ch.swirl, time:0, wseed:(H.seed||1)*0.37}, O);
 }
 function ev(w, e){ if(w.events.length < 8) w.events.push(e); }
 
@@ -527,9 +528,31 @@ function landType(w, f, on){
 
 function newFlight(pos, vel, relT){ const v0 = Math.hypot(vel.x,vel.y,vel.z); return {pos, vel, v0, relT, t:0, spin:0, hit:false, hitT:0, inLeaves:false, leafT:0, lat:0, rollT:0}; }
 
+// ---------- wind that varies across the course ----------
+// stronger higher up, sheltered in forests and canyon bottoms, a bit stronger over water and sand,
+// and on swirling holes it bends and pulses from place to place
+const WIND_CHAR = {meadow:[0.3,0.15], pond:[0.35,0.2], downs:[0.55,0.3], hill:[0.6,0.4], forest:[0.25,0.25], gorge:[0.5,0.7], canyon:[0.5,0.8], sea:[0.7,0.25], range:[0.3,0.1]};
+function windCharacter(H){ const c = WIND_CHAR[H.theme] || WIND_CHAR[H.group] || [0.4, 0.25]; return {gust:H.gust ?? c[0], swirl:H.swirl ?? c[1]}; }
+function localWind(w, x, y, z){
+  let wx = w.wind.x*w.wf, wz = w.wind.z*w.wf;
+  if(!wx && !wz) return [0, 0];
+  const t = w.T(x, z), above = Math.max(0.3, y - t.h), ty = t.type;
+  let k = Math.min(1.45, Math.max(0.55, Math.pow(above/2.5, 0.22)));
+  if(ty==='forest') k *= 0.6;
+  else if((ty==='canyonfloor' || ty==='gorge') && above < 8) k *= 0.6;
+  else if(ty==='water' || ty==='sand') k *= 1.15;
+  const sw = w.swirl || 0;
+  if(sw > 0.05){
+    const tt = w.time || 0, sd = w.wseed || 0;
+    const a = sw*0.9*Math.sin(x*0.045 + tt*0.31 + sd)*Math.cos(z*0.038 - tt*0.23 + sd*1.7);
+    const c = Math.cos(a), sn = Math.sin(a), nx = wx*c - wz*sn, nz = wz*c + wx*sn; wx = nx; wz = nz;
+    k *= 1 + sw*0.35*Math.sin(x*0.07 - z*0.05 + tt*0.5 + sd);
+  }
+  return [wx*k, wz*k];
+}
 function stepFlight(w, f, D, dt){
   const p = f.pos, v = f.vel; const px = p.x, py = p.y, pz = p.z;
-  const wx = w.wind.x*w.wf, wz = w.wind.z*w.wf;
+  const [wx, wz] = localWind(w, p.x, p.y, p.z);
   const rx = v.x - wx, rz = v.z - wz;
   const hRel = Math.hypot(rx, rz) || 1e-3, spRel = Math.hypot(rx, v.y, rz);
   const h = Math.hypot(v.x, v.z) || 1e-3;
@@ -635,7 +658,7 @@ function newBall(pos, vel, backspin, side, spinV){ const f = newFlight(pos, vel,
 function cupNear(w, p){ let best = null, bd = 1e9; for(const B of w.baskets){ const d = Math.hypot(p.x-B.x, p.z-B.z); if(d < bd){ bd = d; best = B; } } return [best, bd]; }
 function stepBall(w, f, dt){
   const p = f.pos, v = f.vel, px = p.x, py = p.y, pz = p.z;
-  const wx = w.wind.x*w.wf, wz = w.wind.z*w.wf, rx = v.x - wx, rz = v.z - wz;
+  const [wx, wz] = localWind(w, p.x, p.y, p.z), rx = v.x - wx, rz = v.z - wz;
   const sp = Math.hypot(rx, v.y, rz) || 1e-3, hs = Math.hypot(rx, rz) || 1e-3;
   let ax = -0.0042*sp*rx, ay = -G - 0.0042*sp*v.y, az = -0.0042*sp*rz;
   const lift = 0.0016*f.backspin*sp*sp;                       // backspin holds the ball up
@@ -721,12 +744,14 @@ function cpuScore(skill, H, r, windSpeed){
 function holeWinds(tier, seed, holes){
   const r = rng(seed*31 + 7);
   return (holes || HOLES).map(H=>{
-    if(tier < 0) return {x:H.wind[0], z:H.wind[1]};
+    const ch = windCharacter(H);
+    if(tier < 0) return {x:H.wind[0], z:H.wind[1], gust:ch.gust, swirl:ch.swirl};
     const W = TOURS[tier].wind; const sp = W[0] + r()*(W[1]-W[0]); const a = r()*Math.PI*2;
-    return {x:Math.sin(a)*sp, z:Math.cos(a)*sp};
+    const harder = 0.8 + tier*0.2, v1 = 0.6 + r()*0.8, v2 = 0.6 + r()*0.8;
+    return {x:Math.sin(a)*sp, z:Math.cos(a)*sp, gust:Math.min(1, ch.gust*v1*harder), swirl:Math.min(1, ch.swirl*v2*harder)};
   });
 }
 
-return {G, rng, fbm, smooth, distToPath, DISCS, CLUBS, SURF, newBall, stepBall, stepBallRoll, cupNearW:(w,p)=>cupNear(w,p)[0], newBallPreview:null, HOLES, COURSES, RANGE, genHole, GEN_NAMES, makeTerrain, makeWorld, surface, newFlight, stepFlight, stepRoll, TOURS, makeField, cpuScore, holeWinds, OB_TYPES};
+return {G, rng, localWind, windCharacter, fbm, smooth, distToPath, DISCS, CLUBS, SURF, newBall, stepBall, stepBallRoll, cupNearW:(w,p)=>cupNear(w,p)[0], newBallPreview:null, HOLES, COURSES, RANGE, genHole, GEN_NAMES, makeTerrain, makeWorld, surface, newFlight, stepFlight, stepRoll, TOURS, makeField, cpuScore, holeWinds, OB_TYPES};
 })();
 if(typeof module !== 'undefined') module.exports = Core;

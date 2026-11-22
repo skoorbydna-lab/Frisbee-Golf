@@ -1689,7 +1689,7 @@ function renderCap(){
   const pc = Math.round(powerCap*100); $('capSlider').value = pc;
   $('capTxt').innerHTML = `Power <b>${pc}%</b>` + (capPred.pt ? ` · full flick ≈ <b>${capPred.d.toFixed(capPred.d < 20 ? 1 : 0)} m</b>` + (capPred.res==='in' ? ' 🎯' : capPred.res && capPred.res.startsWith('ob') ? ' ⚠ OB' : '') + (capPred.hit && capPred.res!=='in' ? ` · <span style="color:#c0392b">clips ${capPred.hit.what} at ${capPred.hit.d.toFixed(0)} m</span>` : '') : '');
 }
-function setCap(c, auto){ powerCap = Math.max(0.1, Math.min(1, c)); capAuto = !!auto; capPred.key = ''; renderCap(); }
+function setCap(c, auto){ powerCap = Math.max(0.1, Math.min(1, c)); capAuto = !!auto; capPred.key = ''; capPred.pt = null; capPred.hit = null; capPred.path = null; renderCap(); }
 // at each new turn: 100%, except with the putter near the basket, where it picks the power that reaches the chains
 function autoCap(){
   if(GOLF || !W) return; capPred.key = '';
@@ -2893,8 +2893,12 @@ function continueAfterRemote(){
 // ================= wind =================
 function computeWind(t){
   const b = winds[holeIdx] || {x:0, z:0}, base = Math.hypot(b.x, b.z);
-  const g = 1 + 0.32*Math.sin(t*0.53 + holeIdx)*Math.sin(t*1.31 + 0.7) + 0.12*Math.sin(t*2.9 + holeIdx);
-  const a = Math.atan2(b.x, b.z) + 0.22*Math.sin(t*0.37 + holeIdx*2);
+  // each hole has its own character: gusty holes pulse harder, swirling holes swing direction more
+  const gu = b.gust ?? (W ? W.gust : 0.4), swl = b.swirl ?? (W ? W.swirl : 0.25);
+  if(W){ W.gust = gu; W.swirl = swl; W.time = t; }
+  const gA = 0.12 + 0.55*gu, sharp = gu > 0.55 ? Math.max(0, Math.sin(t*0.9 + holeIdx*1.3))**6*0.6*gu : 0;
+  const g = Math.max(0.25, 1 + gA*Math.sin(t*0.53 + holeIdx)*Math.sin(t*1.31 + 0.7) + 0.12*Math.sin(t*2.9 + holeIdx) + sharp);
+  const a = Math.atan2(b.x, b.z) + (0.12 + 0.55*swl)*Math.sin(t*0.37 + holeIdx*2) + 0.25*swl*Math.sin(t*0.91 + holeIdx);
   windNow.x = Math.sin(a)*base*g; windNow.z = Math.cos(a)*base*g; windNow.sp = base*g; windNow.base = base;
 }
 
@@ -2920,7 +2924,7 @@ function frame(){
   const vis = W.H.room ? 0.25 : (W.wf || 1);
   U.uWind.value.set(windNow.x*vis, windNow.z*vis);
   hudT -= dt;
-  if(hudT <= 0){ hudT = 0.25; $('windTxt').textContent = `${(windNow.sp*vis).toFixed(1)} m/s`; $('gustTxt').textContent = W.H.room ? 'sheltered' : `avg ${windNow.base.toFixed(1)}`; }
+  if(hudT <= 0){ hudT = 0.25; $('windTxt').textContent = `${(windNow.sp*vis).toFixed(1)} m/s`; $('gustTxt').textContent = W.H.room ? 'sheltered' : `avg ${windNow.base.toFixed(1)}` + (windNow.base < 0.5 ? '' : W.swirl > 0.55 ? ' · swirling' : W.gust > 0.55 ? ' · gusty' : ''); }
   if(windGain) windGain.gain.value = Math.min(0.14, 0.008 + windNow.sp*vis*0.012);
 
   if(state==='flight' || state==='roll'){
