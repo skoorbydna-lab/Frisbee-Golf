@@ -220,7 +220,15 @@ function makeTerrain(H){
   const room = H.room;
   const bx = H.basket[0], bz = H.basket[1], BL = H.baskets || [H.basket];
   const nearB = (x,z)=>{ let d = 1e9; for(const b of BL){ const e = Math.hypot(x-b[0], z-b[1]); if(e < d) d = e; } return d; };
-  return function(x, z){
+  const gr = rng((H.seed|0)*31 + 5), GREENS = BL.map(b=>({x:b[0], z:b[1], a:gr()*Math.PI*2, g:0.01 + gr()*0.018, o:gr()*100}));
+  const greenShape = (x, z)=>{   // metres to add on and around each green: a tilt plus soft rolls, faded out by 13 m
+    let add = 0;
+    for(const G of GREENS){ const d = Math.hypot(x-G.x, z-G.z); if(d >= 13) continue;
+      const k = 1 - smooth(10, 13, d), dx = x-G.x, dz = z-G.z;
+      add += k*(G.g*(dx*Math.cos(G.a) + dz*Math.sin(G.a)) + 0.12*(fbm(x*0.12 + G.o, z*0.12 - G.o) - 0.5)*2); }
+    return add;
+  };
+  const raw = function(x, z){
     let h, type;
     if(H.sea){
       h = -4 + fbm(x*0.03, z*0.03)*1.2;
@@ -270,6 +278,20 @@ function makeTerrain(H){
       }
     }
     out.h = h; out.type = type; return out;
+  };
+  // greens: flatten round each hole (without raising the sea or cutting into canyon walls), then add a tilt and soft rolls
+  const baseH = GREENS.map(G=>raw(G.x, G.z).h);
+  return function(x, z){
+    const o = raw(x, z);
+    for(let i=0;i<GREENS.length;i++){
+      const G = GREENS[i], d = Math.hypot(x-G.x, z-G.z); if(d >= 13) continue;
+      if(o.type==='water' || o.type==='gorge') continue;
+      let k = 1 - smooth(9, 13, d);
+      k *= 1 - smooth(1.5, 3.5, o.h - baseH[i]);
+      if(k <= 0) continue;
+      o.h = o.h + (baseH[i] + greenShape(x, z) - o.h)*k;
+    }
+    return o;
   };
 }
 const OB_TYPES = {water:'ob-water', gorge:'ob-gorge', out:'ob-out'};
@@ -692,6 +714,6 @@ function holeWinds(tier, seed, holes){
   });
 }
 
-return {G, rng, fbm, smooth, distToPath, DISCS, CLUBS, SURF, newBall, stepBall, stepBallRoll, cupNearW:(w,p)=>cupNear(w,p)[0], HOLES, COURSES, RANGE, genHole, GEN_NAMES, makeTerrain, makeWorld, surface, newFlight, stepFlight, stepRoll, TOURS, makeField, cpuScore, holeWinds, OB_TYPES};
+return {G, rng, fbm, smooth, distToPath, DISCS, CLUBS, SURF, newBall, stepBall, stepBallRoll, cupNearW:(w,p)=>cupNear(w,p)[0], newBallPreview:null, HOLES, COURSES, RANGE, genHole, GEN_NAMES, makeTerrain, makeWorld, surface, newFlight, stepFlight, stepRoll, TOURS, makeField, cpuScore, holeWinds, OB_TYPES};
 })();
 if(typeof module !== 'undefined') module.exports = Core;
