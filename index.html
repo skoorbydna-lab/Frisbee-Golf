@@ -128,7 +128,9 @@
   </div>
   <div class="row" id="capRow" style="align-items:center;gap:8px;background:var(--cream);border:3px solid var(--ink);border-radius:12px;box-shadow:0 3px 0 var(--ink);padding:4px 10px">
     <span id="capTxt" style="font:500 13.5px Fredoka,sans-serif;white-space:nowrap;min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis">Power 100%</span>
-    <input id="capSlider" type="range" min="10" max="100" step="5" value="100" style="flex:1;min-width:90px;accent-color:#ff8a1f;height:28px">
+    <button class="chip" id="capMinus" style="flex:0 0 40px;padding:2px 0;font-size:20px;line-height:1">−</button>
+    <input id="capSlider" type="range" min="10" max="100" step="1" value="100" style="flex:1;min-width:70px;accent-color:#ff8a1f;height:28px">
+    <button class="chip" id="capPlus" style="flex:0 0 40px;padding:2px 0;font-size:20px;line-height:1">+</button>
   </div>
   <div class="row"><div id="powerWrap"><div id="power"></div><div id="powerTick" style="display:none;position:absolute;top:-2px;bottom:-2px;width:4px;margin-left:-2px;background:#fff;border:1.5px solid #14202b;border-radius:2px;z-index:2"></div><div id="powerLabel">Touch the disc, then flick up</div></div></div>
 </div>
@@ -2394,6 +2396,14 @@ function simDisc(key, speed){
 function H_CANYON(){ const h = mode!=='range' && RH[holeIdx]; return !!h && (h.group==='canyon' || h.theme==='canyon' || h.theme==='gorge'); }
 function capSpeed(key, cap){ const D = C.DISCS[key] || C.DISCS.driver; return D.max*(0.3 + 0.7*cap); }
 $('capSlider').addEventListener('input', e=>{ setCap(+e.target.value/100, false); });
+// − / + step 1%; hold to keep stepping
+for(const [id, dir] of [['capMinus', -1], ['capPlus', 1]]){
+  let rep = null, t0 = null; const el = $(id);
+  const step = ()=>setCap(Math.round(powerCap*100 + dir)/100, false);
+  const stop = ()=>{ clearTimeout(t0); clearInterval(rep); t0 = rep = null; };
+  el.addEventListener('pointerdown', e=>{ e.stopPropagation(); e.preventDefault(); step(); t0 = setTimeout(()=>{ rep = setInterval(step, 90); }, 400); });
+  ['pointerup','pointerleave','pointercancel'].forEach(t=>el.addEventListener(t, stop));
+}
 ['pointerdown','touchstart'].forEach(t=>$('capSlider').addEventListener(t, e=>e.stopPropagation()));
 function renderCap(){
   const pc = Math.round(powerCap*100); $('capSlider').value = pc;
@@ -2406,7 +2416,7 @@ function autoCap(){
   if(discKey==='putter' && distToBasket(lie) < 40){
     const target = distToBasket(lie); let a = 0.1, b = 1, best = 1;
     for(let k=0;k<9;k++){ const m = (a+b)/2, r = simDisc('putter', capSpeed('putter', m)); if(r.res==='in'){ best = m; break; } if(r.d < target) a = m; else b = m; best = (a+b)/2; }
-    setCap(Math.round(best*100/5)*5/100, true);
+    setCap(Math.round(best*100)/100, true);
   } else setCap(1, true);
 }
 function updateCapPred(dt){
