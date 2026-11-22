@@ -1,6 +1,6 @@
 // how forgiving is putting? for putts of various lengths, what spread of pace and aim still drops
 const C = require('../src/core.js');
-const sp = p=>Math.sqrt(2*0.8*(0.3 + 20*p*p));
+const TIERS=[2,3,4.5,6,8,11,15,20,26]; let PM=10; const OLD=process.argv[2]==='old'; const sp = p=>OLD ? Math.sqrt(2*0.8*(0.3 + 20*p*p)) : Math.sqrt(2*0.8*(0.05 + PM*Math.pow(p,1.5)));
 function putt(w, from, yaw, p){
   const s = sp(p), f = C.newBall({x:from.x, y:from.y, z:from.z}, {x:-Math.sin(yaw)*s, y:0, z:-Math.cos(yaw)*s}, 0, 0);
   f.firstLand = {...from}; f.pos.y -= 0.02;
@@ -9,8 +9,8 @@ function putt(w, from, yaw, p){
 const rows = [];
 for(const hi of [0,20]){
   const w = C.makeWorld(C.HOLES[hi], {golf:true}); w.wind = {x:0,z:0}; const B = w.baskets[0];
-  for(const d of [1.5, 3, 6, 10]) for(const a of [0, 2.1]){
-    const x = B.x + Math.sin(a)*d, z = B.z + Math.cos(a)*d, from = {x, y:w.T(x,z).h + 0.04, z};
+  for(const d of [1.5, 3, 6, 10]) for(const a of [0]){
+    PM = TIERS.find(t=>t>=d*2)||26; const x = B.x + Math.sin(a)*d, z = B.z + Math.cos(a)*d, from = {x, y:w.T(x,z).h + 0.04, z};
     const yaw0 = Math.atan2(-(B.x-x), -(B.z-z));
     // best yaw (break), then pace window and aim window
     let best = null;
