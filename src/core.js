@@ -678,9 +678,10 @@ function stepBallRoll(w, f, dt){
   const s2 = surface(w, p.x, p.z, p.y + 0.3);
   if(s2.s > p.y + 0.6){ p.x = px; p.z = pz; v.x *= -0.3; v.z *= -0.3; } else p.y = s2.s + 0.02;
   const [B, db] = cupNear(w, p);
-  if(db < 0.11){
-    if(sp < 1.7){ f.inBasket = B; return 'in'; }
-    if(db < 0.07){ const a = (Math.random() - 0.5)*0.9, c = Math.cos(a), s = Math.sin(a), vx = v.x, vz = v.z; v.x = (vx*c - vz*s)*0.7; v.z = (vz*c + vx*s)*0.7; ev(w,'clank'); }   // lip-out
+  if(db < 0.6 && db > 0.02 && sp < 1.4){ const pull = (0.6 - db)*1.1*dt/db; v.x += (B.x - p.x)*pull; v.z += (B.z - p.z)*pull; }   // the hole gathers a dying putt
+  if(db < 0.14){
+    if(sp < 2.1){ f.inBasket = B; return 'in'; }
+    if(db < 0.08){ const a = (Math.random() - 0.5)*0.9, c = Math.cos(a), s = Math.sin(a), vx = v.x, vz = v.z; v.x = (vx*c - vz*s)*0.7; v.z = (vz*c + vx*s)*0.7; ev(w,'clank'); }   // lip-out
   }
   f.on = s2.on;
   const ob = landType(w, f, s2.on); if(ob) return ob;
