@@ -715,7 +715,8 @@ const sfx = {
   clack(){ tone(900 + Math.random()*400, 0.06, 0.06, 'square', 400); },
   gutter(){ noise(0.4, 300, 120, 0.25, 'lowpass'); },
   cheer(){ [523,659,784,1047].forEach((f,i)=>setTimeout(()=>tone(f, 0.22, 0.12), i*90)); },
-  ding(){ tone(880, 0.15, 0.1); }
+  ding(){ tone(880, 0.15, 0.1); },
+  foul(){ tone(180, 0.5, 0.18, 'sawtooth'); setTimeout(()=>tone(150, 0.45, 0.16, 'sawtooth'), 120); }
 };
 
 // ================= helpers =================
@@ -740,7 +741,7 @@ function renderCard(){
 
 // ================= camera =================
 const camPos = new THREE.Vector3(0, 1.6, 4.2), camLook = new THREE.Vector3(0, 0.3, -18);
-let camMode = 'aim', shake = 0, confetti = [];
+let camMode = 'aim', shake = 0, confetti = [], foulFlash = 0;
 function updateCamera(dt){
   let tp, tl, k = 4;
   const bx = bowlerX();
@@ -760,6 +761,13 @@ function updateCamera(dt){
 }
 
 // ================= turn flow =================
+function snapPins(standing){      // make the lane show exactly this result
+  for(const p of world.pins){
+    if(!standing.includes(p.id)){ if(p.state==='up' || p.tilt < 0.3) p.state = 'gone'; }
+    else if(p.state==='gone' || p.tilt > 0.3){ const sp = E.SPOTS[p.id-1]; Object.assign(p, {state:'up', c:[sp.x, 0.145, sp.z], q:[0,0,0,1], v:[0,0,0], w:[0,0,0], x:sp.x, z:sp.z, y:0, tilt:0}); }
+  }
+  for(const id of standing) if(!world.pins.some(p=>p.id===id)){ const sp = E.SPOTS[id-1]; world.pins.push(Object.assign(E.newRack([id])[0], {x:sp.x, z:sp.z, c:[sp.x, 0.145, sp.z], q:[0,0,0,1]})); }
+}
 function rackFor(p){ const gs = E.gameState(p.rolls); return gs.fresh || !p.left ? null : p.left; }
 let gameSeed = 1, series = {best:1, wins:[], game:1};
 function seriesChips(el){
@@ -815,6 +823,7 @@ function afterBall(knocked, standing){
 }
 function resultMessage(knocked, standing, firstBall, freshBefore){
   const p = curP(), gs = E.gameState(p.rolls);
+  if(world.foul) return {html:'FOUL!<small>0 pins · the pins go back up</small>'};
   if(knocked===10 && freshBefore){
     // count strikes in a row
     let run = 1; if(mode!=='practice') for(let i=p.rolls.length-1; i>=0 && p.rolls[i]===10; i--) run++;
@@ -830,6 +839,8 @@ function resultMessage(knocked, standing, firstBall, freshBefore){
 
 // ================= throwing =================
 function throwBall(params){
+  world.rackBefore = world.pins.filter(p=>p.state!=='gone').map(p=>p.id); world.foul = !!params.foul;
+  if(world.foul){ sfx.foul(); flash('FOUL!<small>over the line</small>', 1.4); foulFlash = 1.2; }
   const b = E.newBall(params); world.ball = b; lastBall = b; ballOnLane = true;
   state = 'roll'; camMode = 'roll'; startRumble();
   $('skipBtn').classList.remove('hidden');
@@ -869,9 +880,11 @@ function paramsFromSwipe(s){
   const axis = h*0.95, rpm = 90 + 300*Math.abs(h)*(0.75 + 0.25*pw);
   // release timing: let go as the ring closes
   let q = 1, timing = '';
-  if(settings.ring){ const err = s.tLift - APPROACH; q = Math.max(0, 1 - Math.abs(err)/0.4); timing = Math.abs(err) < 0.08 ? 'perfect' : err < 0 ? 'early' : 'late'; }
+  let foul = false;
+  if(settings.ring){ const err = s.tLift - APPROACH; q = Math.max(0, 1 - Math.abs(err)/0.4); timing = Math.abs(err) < 0.08 ? 'perfect' : err < 0 ? 'early' : 'late';
+    if(err > 0.3){ foul = true; timing = 'foul'; } }      // let go far too late: you've slid over the foul line
   const wob = (1 - q)*(Math.random() - 0.5)*0.05;
-  return {x:relX(), angle:s.ang + wob, speed:V*(0.88 + 0.12*q), revs:rpm*Math.PI/30, axis, rpm, h, pw, back:s.back, timing, q};
+  return {x:relX(), angle:s.ang + wob, speed:V*(0.88 + 0.12*q), revs:rpm*Math.PI/30, axis, rpm, h, pw, back:s.back, timing, q, foul};
 }
 
 // ---- input ----
@@ -909,7 +922,7 @@ const endPtr = e=>{
     if(s.err){ state = 'aim'; camMode = 'aim'; bowler.root.position.z = 3.4; poseBowler(0);
       hint(s.err==='noback' ? 'Pull <b>back</b> (down) first for your backswing, then swing up' : 'Now <b>swing up the lane</b> after pulling back, then let go'); return; }
     const P = paramsFromSwipe(s);
-    P.note = [P.timing==='perfect' ? '⭐ Perfect release!' : P.timing==='early' ? 'A bit early' : P.timing==='late' ? 'A bit late' : '', P.pw > 0.92 ? '💥 Full power!' : ''].filter(Boolean).join(' · ');
+    P.note = P.foul ? '🚨 Foul! You slid over the line' : [P.timing==='perfect' ? '⭐ Perfect release!' : P.timing==='early' ? 'A bit early' : P.timing==='late' ? 'A bit late' : '', P.pw > 0.92 ? '💥 Full power!' : ''].filter(Boolean).join(' · ');
     release(P);
   }
 };
@@ -919,7 +932,7 @@ function release(P){
   bowler.root.position.z = 0.55; poseBowler(1);
   throwBall(P);
   if(mode==='online' && cur===myIdx && !P.remote){ const b = world.ball; net.seq = (net.seq||0) + 1; myThrowN = net.seq;
-    netSend({t:'throw', n:net.seq, idx:cur, p:{x:P.x, init:[b.x, b.vx, b.vz, b.wx, b.wy, b.wz]}}); saveSession(); }
+    netSend({t:'throw', n:net.seq, idx:cur, p:{x:P.x, foul:!!P.foul, init:[b.x, b.vx, b.vz, b.wx, b.wy, b.wz]}}); saveSession(); }
   if(P.timing==='perfect') sfx.ding();
   if(mode==='practice') practiceStats.push(P);
 }
@@ -991,11 +1004,9 @@ function frameBody(){
       stopRumble(); state = 'result'; resultT = 0; $('skipBtn').classList.add('hidden');
       let standing = E.standingIds(world), before = world.pins.length, knocked = before - standing.length;
       if(remoteThrow && !netResults[remoteThrow.n]) netResults[remoteThrow.n] = {knocked, standing};   // thrower dropped out mid-ball: our replay (same physics, same rack) stands
-      if(remoteThrow){ const R = netResults[remoteThrow.n]; replayChecks.n++; if(R.standing.join() !== standing.join()) replayChecks.bad++; knocked = R.knocked; standing = R.standing;     // the thrower's phone has the final say
-        for(const p of world.pins){
-          if(!standing.includes(p.id)){ if(p.state==='up' || p.tilt < 0.3) p.state = 'gone'; }
-          else if(p.state==='gone' || p.tilt > 0.3){ const sp = E.SPOTS[p.id-1]; Object.assign(p, {state:'up', c:[sp.x, 0.145, sp.z], q:[0,0,0,1], v:[0,0,0], w:[0,0,0], x:sp.x, z:sp.z, y:0, tilt:0}); }
-        } }
+      if(world.foul && !remoteThrow){ knocked = 0; standing = world.rackBefore.slice(); }      // a foul: whatever fell doesn't count and the pins are put back
+      if(remoteThrow){ const R = netResults[remoteThrow.n]; replayChecks.n++; if(R.standing.join() !== standing.join()) replayChecks.bad++; knocked = R.knocked; standing = R.standing; }    // the thrower's phone has the final say
+      if(remoteThrow || world.foul) snapPins(standing);
       else if(mode==='online' && cur===myIdx){ netSend({t:'result', n:myThrowN, knocked, standing}); }
       const r = resultMessage(knocked, standing, world.firstBall, world.freshBefore);
       if(r.big){ sfx.cheer(); const W = innerWidth; for(let i=0;i<90;i++) confetti.push({x:W*Math.random(), y:-20 - Math.random()*200, vx:(Math.random()-0.5)*80, vy:120 + Math.random()*160, r:Math.random()*6, vr:(Math.random()-0.5)*10, c:['#ff4f9a','#ffcc1f','#19c2c9','#3ddc84','#fff'][i%5], t:0}); }
@@ -1076,6 +1087,9 @@ function drawFx(){
   if(confetti.length){ const dt = 1/60;
     confetti = confetti.filter(c=>(c.t += dt) < 3.5 && c.y < H + 20);
     for(const c of confetti){ c.x += c.vx*dt + Math.sin(c.t*3 + c.r)*0.8; c.y += c.vy*dt; c.r += c.vr*dt; fctx.save(); fctx.translate(c.x, c.y); fctx.rotate(c.r); fctx.fillStyle = c.c; fctx.fillRect(-5, -2.5, 10, 5); fctx.restore(); } }
+  if(foulFlash > 0){ foulFlash -= 1/60;
+    const a = new THREE.Vector3(-L.half - L.gutterW, 0.01, 0).project(camera), b = new THREE.Vector3(L.half + L.gutterW, 0.01, 0).project(camera);
+    fctx.strokeStyle = `rgba(255,40,40,${Math.min(1, foulFlash)})`; fctx.lineWidth = 7; fctx.beginPath(); fctx.moveTo((a.x+1)/2*W, (1-a.y)/2*H); fctx.lineTo((b.x+1)/2*W, (1-b.y)/2*H); fctx.stroke(); }
   // the swipe trail
   if(state==='approach' && swipePts.length > 1 && !(cpuPlan && cpuPlan.auto)){
     fctx.strokeStyle = 'rgba(255,204,31,.85)'; fctx.lineWidth = 6; fctx.lineCap = 'round'; fctx.beginPath();
@@ -1190,7 +1204,7 @@ $('endMenu').onclick = ()=>{ $('end').classList.add('hidden'); toMenu(); };
 const HOW = [
   ['How to bowl', 'Knock down all ten pins. Ten frames, two balls each. A <b>strike</b> (all ten with the first ball) scores 10 plus your next two balls. A <b>spare</b> (all ten with two balls) scores 10 plus your next ball. A perfect game is 300.'],
   ['1 · Line up', 'Before you bowl, <b>drag left or right</b> anywhere to move along the approach. The dotted line shows straight down the lane, and the <b>board number</b> tells you where you are. The arrows on the lane help you aim.'],
-  ['2 · Swing back, swing through', 'Touch <b>anywhere</b> and <b>pull down</b>: that\'s your backswing, and your bowler starts the run-up. The meter on the right shows how far back you are.<br><br>Then <b>swing up the lane</b> and <b>let go as the white ring closes on the green circle</b> for a perfect release. The <b>direction of your swing</b> sets the line: straight up the screen is straight down the lane. While you swing, a <b>yellow marker</b> shows the board you\'ll cross at the arrows. Bending the swing adds hook without changing that line.'],
+  ['2 · Swing back, swing through', 'Touch <b>anywhere</b> and <b>pull down</b>: that\'s your backswing, and your bowler starts the run-up. The meter on the right shows how far back you are.<br><br>Then <b>swing up the lane</b> and <b>let go as the white ring closes on the green circle</b> for a perfect release. Leave it too late and you slide over the line: <b>foul</b>, and that ball scores 0. The <b>direction of your swing</b> sets the line: straight up the screen is straight down the lane. While you swing, a <b>yellow marker</b> shows the board you\'ll cross at the arrows. Bending the swing adds hook without changing that line.'],
   ['3 · Speed and hook', '<b>Bigger backswing and faster swing = faster ball.</b> Fast balls deflect less but hook less.<br><br><b>Bend your swipe like a banana</b> and the ball hooks the way you bend it. The front of the lane is oiled, so a hook ball slides straight at first, then grabs and curves late, just like the real thing.'],
   ['4 · Hit the pocket', 'The best strike ball comes in at an angle between the 1 and 3 pins (1 and 2 for left-handers). Right-handers: stand right of centre, aim over the second arrow from the right, and bend your swipe to the left.<br><br>Try the <b>Practice lane</b> to see your speed, revs and hook after each ball.']
 ];
