@@ -2664,6 +2664,7 @@ function openOnline(code, hint){
   $('onlineScreen').classList.remove('hidden');
   setTimeout(()=>{ if(!window.mqtt) libReady(); }, 3000);
 }
+if(!/github\.io$/.test(location.hostname)) $('bowlingBtn').classList.add('hidden');     // bowling lives next door on the GitHub site
 $('onlineBtn').addEventListener('click', ()=>openOnline(''));
 $('olHost').addEventListener('click', hostGame);
 $('olJoin').addEventListener('click', ()=>joinGame('', net.hint));
