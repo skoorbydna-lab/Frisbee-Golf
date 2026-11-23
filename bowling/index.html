@@ -73,6 +73,11 @@
 <div id="msg"></div>
 <div class="pill hidden" id="stats"></div>
 <div id="bottom">
+  <div class="pill" id="angleRow" style="pointer-events:auto;display:flex;align-items:center;gap:8px;padding:4px 8px">
+    <button class="chip" id="angL" style="flex:0 0 46px;padding:3px 0;font-size:18px">◀</button>
+    <span id="angTxt" style="min-width:150px;text-align:center;font-size:14px">Line: straight</span>
+    <button class="chip" id="angR" style="flex:0 0 46px;padding:3px 0;font-size:18px">▶</button>
+  </div>
   <button class="pill btnS hidden" id="skipBtn">Skip ⏭</button>
   <div class="pill" id="hint"></div>
 </div>
@@ -853,7 +858,22 @@ function throwBall(params){
 // higher backswing + faster forward swing = more speed; where you let go = where it goes; bend the forward swing = hook
 // launch direction from the direction of the forward swing: straight up the screen = straight down the lane;
 // every 4° of swing angle turns the ball 1°. Bending the swing for hook doesn't change the launch line.
-function swingAngle(a, end){ const sa = Math.atan2(end[0] - a[0], a[1] - end[1]); return Math.max(-0.09, Math.min(0.09, sa*0.25)); }
+// the line you set with ◀ ▶ before bowling; a straight swing follows it, an angled swing adds to it
+let aimAng = 0;
+const AIM_MAX = 0.07;
+function swingAngle(a, end){ const sa = Math.atan2(end[0] - a[0], a[1] - end[1]); return Math.max(-0.09, Math.min(0.09, aimAng + sa*0.25)); }
+function boardAt(x){ return Math.max(1, Math.min(39, Math.round((L.half - x*settings.hand)/L.board))); }
+function renderAngle(){
+  const deg = aimAng*180/Math.PI, xA = relX() + Math.tan(aimAng)*L.arrows;
+  $('angTxt').innerHTML = Math.abs(deg) < 0.05 ? `Line: straight · board ${boardAt(xA)}` : `Line: ${Math.abs(deg).toFixed(1)}° ${deg > 0 ? 'right' : 'left'} · board ${boardAt(xA)}`;
+}
+for(const [id, dir] of [['angL', -1], ['angR', 1]]){
+  let t0 = null, rep_ = null; const el = $(id);
+  const stepA = ()=>{ aimAng = Math.max(-AIM_MAX, Math.min(AIM_MAX, Math.round((aimAng + dir*0.25*Math.PI/180)*1e4)/1e4)); renderAngle(); };
+  const stop = ()=>{ clearTimeout(t0); clearInterval(rep_); t0 = rep_ = null; };
+  el.addEventListener('pointerdown', e=>{ e.stopPropagation(); e.preventDefault(); if(state!=='aim') return; stepA(); t0 = setTimeout(()=>{ rep_ = setInterval(stepA, 80); }, 350); });
+  ['pointerup','pointerleave','pointercancel'].forEach(t=>el.addEventListener(t, stop));
+}
 function analyseSwipe(pts){
   if(pts.length < 4) return {err:'none'};
   const y0 = pts[0][1];
@@ -904,7 +924,7 @@ canvas.addEventListener('pointermove', e=>{
   if(state==='aim'){ const dx = e.clientX - ptr.x, dy = e.clientY - ptr.y;
     if(!ptr.kind){ if(Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) ptr.kind = 'move'; else if(dy > 10 && dy > Math.abs(dx)){
         ptr.kind = 'swing'; state = 'approach'; camMode = 'approach'; approachT = 0; swing = {back:0, max:0, fwd:0}; swipePts = [[ptr.x, ptr.y, 0]]; } }
-    if(ptr.kind==='move'){ posX = Math.max(-L.half + 0.12, Math.min(L.half - 0.12, ptr.px0 + dx/innerWidth*1.2)); bowler.root.position.x = bowlerX(); }
+    if(ptr.kind==='move'){ posX = Math.max(-L.half + 0.12, Math.min(L.half - 0.12, ptr.px0 + dx/innerWidth*1.2)); bowler.root.position.x = bowlerX(); renderAngle(); }
   }
   if(state==='approach' && ptr.kind==='swing'){ swipePts.push([e.clientX, e.clientY, approachT*1000]); ptr.cx = e.clientX; ptr.cy = e.clientY;
     const y0 = swipePts[0][1], d = (e.clientY - y0)/innerHeight;
@@ -1016,6 +1036,7 @@ function frameBody(){
     }
   }
   $('bottom').classList.toggle('hidden', state==='approach');
+  $('angleRow').classList.toggle('hidden', state!=='aim');
   syncPins(); syncBall(dt); updateCamera(dt); drawFx();
   renderer.render(scene, camera);
 }
@@ -1046,12 +1067,13 @@ function drawFx(){
   fctx.setTransform(1, 0, 0, 1, 0, 0); fctx.clearRect(0, 0, fx.width, fx.height); fctx.setTransform(d, 0, 0, d, 0, 0);
   if(state==='aim' && settings.guide){
     // dotted guide straight down the lane from where you stand, out to the arrows
-    fctx.strokeStyle = 'rgba(255,255,255,.75)'; fctx.lineWidth = 2.5; fctx.setLineDash([6, 7]); fctx.beginPath();
-    for(let z=-0.4; z>=-L.arrows - 1; z-=0.5){ const v = new THREE.Vector3(relX(), 0.01, z).project(camera); const x = (v.x+1)/2*W, y = (1-v.y)/2*H; z===-0.4 ? fctx.moveTo(x,y) : fctx.lineTo(x,y); }
-    fctx.stroke(); fctx.setLineDash([]);
-    const board = Math.round((L.half - relX()*settings.hand)/L.board);
-    const v = new THREE.Vector3(relX(), 0.01, -L.arrows - 1.2).project(camera);
-    fctx.font = '600 12px Fredoka, sans-serif'; fctx.fillStyle = '#fff'; fctx.textAlign = 'center'; fctx.fillText(`board ${Math.max(1, Math.min(39, board))}`, (v.x+1)/2*W, (1-v.y)/2*H - 6);
+    const tA = Math.tan(aimAng), at = z=>{ const v = new THREE.Vector3(relX() - tA*(z + 0.3), 0.01, z).project(camera); return [(v.x+1)/2*W, (1-v.y)/2*H]; };
+    fctx.lineWidth = 2.5; fctx.setLineDash([6, 7]);
+    fctx.strokeStyle = 'rgba(255,255,255,.8)'; fctx.beginPath(); for(let z=-0.4; z>=-L.arrows - 0.6; z-=0.4){ const [x,y] = at(z); z===-0.4 ? fctx.moveTo(x,y) : fctx.lineTo(x,y); } fctx.stroke();
+    fctx.strokeStyle = 'rgba(255,255,255,.3)'; fctx.beginPath(); for(let z=-L.arrows - 0.6; z>=-L.len; z-=1){ const [x,y] = at(z); z===-L.arrows - 0.6 ? fctx.moveTo(x,y) : fctx.lineTo(x,y); } fctx.stroke();
+    fctx.setLineDash([]);
+    const [mx, my] = at(-L.arrows); fctx.strokeStyle = '#fff'; fctx.lineWidth = 3; fctx.beginPath(); fctx.ellipse(mx, my, 14, 5, 0, 0, 7); fctx.stroke();
+    fctx.font = '600 12px Fredoka, sans-serif'; fctx.fillStyle = '#fff'; fctx.textAlign = 'center'; fctx.fillText(`board ${boardAt(relX() + tA*L.arrows)}`, mx, my - 10);
   }
   if(state==='approach' && !(cpuPlan && cpuPlan.auto)){
     // swing meter: how far back you've pulled (power) and the forward swing
@@ -1129,6 +1151,7 @@ renderToggles();
 function startGame(m, list, seed, ser){
   gameSeed = seed || 1 + Math.floor(Math.random()*1e6);
   series = ser ? JSON.parse(JSON.stringify(ser)) : {best:(m==='solo' || m==='practice') ? 1 : (settings.series || 1), wins:list.map(()=>0), game:1};
+  aimAng = 0; setTimeout(renderAngle, 0);
   mode = m; players = list.map((q,i)=>({name:q.name, cpu:q.cpu || null, color:q.color ?? i, rolls:[], left:null})); cur = 0; practiceStats = [];
   posX = 0.22*settings.hand; setBallColor(players[0].color);
   ['menu','setup','end','pause','how'].forEach(id=>$(id).classList.add('hidden'));
@@ -1203,7 +1226,7 @@ $('endMenu').onclick = ()=>{ $('end').classList.add('hidden'); toMenu(); };
 // ---- how to bowl ----
 const HOW = [
   ['How to bowl', 'Knock down all ten pins. Ten frames, two balls each. A <b>strike</b> (all ten with the first ball) scores 10 plus your next two balls. A <b>spare</b> (all ten with two balls) scores 10 plus your next ball. A perfect game is 300.'],
-  ['1 · Line up', 'Before you bowl, <b>drag left or right</b> anywhere to move along the approach. The dotted line shows straight down the lane, and the <b>board number</b> tells you where you are. The arrows on the lane help you aim.'],
+  ['1 · Line up', 'Before you bowl, <b>drag left or right</b> anywhere to move along the approach, and use <b>◀ ▶</b> to angle your line. The dotted line shows where a straight swing will send the ball, with the <b>board</b> it crosses at the arrows. Stand right and angle left to come into the pocket.'],
   ['2 · Swing back, swing through', 'Touch <b>anywhere</b> and <b>pull down</b>: that\'s your backswing, and your bowler starts the run-up. The meter on the right shows how far back you are.<br><br>Then <b>swing up the lane</b> and <b>let go as the white ring closes on the green circle</b> for a perfect release. Leave it too late and you slide over the line: <b>foul</b>, and that ball scores 0. The <b>direction of your swing</b> sets the line: straight up the screen is straight down the lane. While you swing, a <b>yellow marker</b> shows the board you\'ll cross at the arrows. Bending the swing adds hook without changing that line.'],
   ['3 · Speed and hook', '<b>Bigger backswing and faster swing = faster ball.</b> Fast balls deflect less but hook less.<br><br><b>Bend your swipe like a banana</b> and the ball hooks the way you bend it. The front of the lane is oiled, so a hook ball slides straight at first, then grabs and curves late, just like the real thing.'],
   ['4 · Hit the pocket', 'The best strike ball comes in at an angle between the 1 and 3 pins (1 and 2 for left-handers). Right-handers: stand right of centre, aim over the second arrow from the right, and bend your swipe to the left.<br><br>Try the <b>Practice lane</b> to see your speed, revs and hook after each ball.']
