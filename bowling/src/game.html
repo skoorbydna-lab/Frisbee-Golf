@@ -115,6 +115,7 @@
     <h2 id="endTitle">Game over</h2>
     <div id="endBody"></div>
     <button class="btn" id="endAgain">Play again</button>
+    <p id="endWait" class="hidden" style="text-align:center;font-weight:600">Waiting for the host to start the next game…</p>
     <button class="btn grey" id="endMenu">Menu</button>
   </div>
 </div>
@@ -133,6 +134,7 @@
       <table class="sc" id="olPlayers"></table>
       <button class="btn" id="olWhatsApp" style="background:#25d366">Invite on WhatsApp</button>
       <button class="btn alt" id="olMore">Share invite link</button>
+      <div class="row" id="olSeries"></div>
       <button class="btn pink" id="olGo">Start game</button>
     </div>
     <p id="olStatus" style="font-size:14px;text-align:center;min-height:18px"></p>
@@ -183,7 +185,7 @@ scene.fog = new THREE.Fog('#2a1f52', 26, 46);
 const camera = new THREE.PerspectiveCamera(52, 1, 0.05, 80);
 const fx = $('fx'), fctx = fx.getContext('2d');
 function resize(){ const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w/h; camera.fov = w < h ? 58 : 46; camera.updateProjectionMatrix();
-  const d = Math.min(devicePixelRatio || 1, 2); fx.width = w*d; fx.height = h*d; fctx.setTransform(d,0,0,d,0,0); }
+  const d = Math.min(devicePixelRatio || 1, 2); fx.width = Math.round(w*d); fx.height = Math.round(h*d); fctx.setTransform(d,0,0,d,0,0); }
 addEventListener('resize', resize); resize();
 
 { const envScene = new THREE.Scene(); envScene.background = new THREE.Color('#1b1436');
@@ -409,7 +411,12 @@ function updateCamera(dt){
 
 // ================= turn flow =================
 function rackFor(p){ const gs = E.gameState(p.rolls); return gs.fresh || !p.left ? null : p.left; }
-let gameSeed = 1;
+let gameSeed = 1, series = {best:1, wins:[], game:1};
+function seriesChips(el){
+  const b = settings.series || 1;
+  el.innerHTML = [1,3,5].map(n=>`<button class="chip${n===b ? ' on' : ''}" data-sr="${n}">${n===1 ? 'One game' : 'Best of ' + n}</button>`).join('');
+  el.querySelectorAll('[data-sr]').forEach(x=>x.onclick = ()=>{ settings.series = +x.dataset.sr; saveSettings(); seriesChips(el); });
+}
 function rackSeed(){ return gameSeed + 7919*players.reduce((n,q)=>n + q.rolls.length, 0) + 131*cur; }
 function startTurn(){
   const p = curP();
@@ -560,8 +567,9 @@ canvas.addEventListener('pointerup', endPtr); canvas.addEventListener('pointerca
 function release(P){
   // finish the bowler at the foul line and let the ball go
   bowler.root.position.z = 0.55; poseBowler(1);
-  if(mode==='online' && cur===myIdx && !P.remote){ net.seq = (net.seq||0) + 1; myThrowN = net.seq; netSend({t:'throw', n:net.seq, idx:cur, p:{x:P.x, angle:P.angle, speed:P.speed, revs:P.revs, axis:P.axis}}); saveSession(); }
   throwBall(P);
+  if(mode==='online' && cur===myIdx && !P.remote){ const b = world.ball; net.seq = (net.seq||0) + 1; myThrowN = net.seq;
+    netSend({t:'throw', n:net.seq, idx:cur, p:{x:P.x, init:[b.x, b.vx, b.vz, b.wx, b.wy, b.wz]}}); saveSession(); }
   if(P.timing==='perfect') sfx.ding();
   if(mode==='practice') practiceStats.push(P);
 }
@@ -610,6 +618,9 @@ const clock = new THREE.Clock();
 let lastEvN = 0;
 function frame(){
   requestAnimationFrame(frame);
+  try{ frameBody(); }catch(err){ if(!frame.warned){ frame.warned = true; console.error(err); hint('⚠️ ' + esc(String(err && err.message || err)).slice(0, 120)); } }
+}
+function frameBody(){
   const dt = Math.min(0.05, clock.getDelta());
   if(state==='approach'){
     approachT += dt;
@@ -630,8 +641,11 @@ function frame(){
       stopRumble(); state = 'result'; resultT = 0; $('skipBtn').classList.add('hidden');
       let standing = E.standingIds(world), before = world.pins.length, knocked = before - standing.length;
       if(remoteThrow && !netResults[remoteThrow.n]) netResults[remoteThrow.n] = {knocked, standing};   // thrower dropped out mid-ball: our replay (same physics, same rack) stands
-      if(remoteThrow){ const R = netResults[remoteThrow.n]; knocked = R.knocked; standing = R.standing;     // the thrower's phone has the final say
-        for(const p of world.pins) if(!standing.includes(p.id) && p.state==='up') p.state = 'gone'; }
+      if(remoteThrow){ const R = netResults[remoteThrow.n]; replayChecks.n++; if(R.standing.join() !== standing.join()) replayChecks.bad++; knocked = R.knocked; standing = R.standing;     // the thrower's phone has the final say
+        for(const p of world.pins){
+          if(!standing.includes(p.id)){ if(p.state==='up' || p.tilt < 0.3) p.state = 'gone'; }
+          else if(p.state==='gone' || p.tilt > 0.3){ const sp = E.SPOTS[p.id-1]; Object.assign(p, {state:'up', c:[sp.x, 0.145, sp.z], q:[0,0,0,1], v:[0,0,0], w:[0,0,0], x:sp.x, z:sp.z, y:0, tilt:0}); }
+        } }
       else if(mode==='online' && cur===myIdx){ netSend({t:'result', n:myThrowN, knocked, standing}); }
       const r = resultMessage(knocked, standing, world.firstBall, world.freshBefore);
       if(r.big){ sfx.cheer(); const W = innerWidth; for(let i=0;i<90;i++) confetti.push({x:W*Math.random(), y:-20 - Math.random()*200, vx:(Math.random()-0.5)*80, vy:120 + Math.random()*160, r:Math.random()*6, vr:(Math.random()-0.5)*10, c:['#ff4f9a','#ffcc1f','#19c2c9','#3ddc84','#fff'][i%5], t:0}); }
@@ -666,7 +680,9 @@ function syncBall(dt){
   const w = Math.hypot(b.wx, b.wy, b.wz); if(w > 0.01){ vTmp.set(b.wx/w, b.wy/w, b.wz/w); qTmp.setFromAxisAngle(vTmp, w*dt*(skipReq ? 4 : 1)); ballG.quaternion.premultiply(qTmp); }
 }
 function drawFx(){
-  const W = innerWidth, H = innerHeight; fctx.clearRect(0, 0, W, H);
+  const W = innerWidth, H = innerHeight, d = Math.min(devicePixelRatio || 1, 2);
+  if(fx.width !== Math.round(W*d) || fx.height !== Math.round(H*d)) resize();      // some in-app browsers resize without telling us
+  fctx.setTransform(1, 0, 0, 1, 0, 0); fctx.clearRect(0, 0, fx.width, fx.height); fctx.setTransform(d, 0, 0, d, 0, 0);
   if(state==='aim' && settings.guide){
     // dotted guide straight down the lane from where you stand, out to the arrows
     fctx.strokeStyle = 'rgba(255,255,255,.75)'; fctx.lineWidth = 2.5; fctx.setLineDash([6, 7]); fctx.beginPath();
@@ -746,8 +762,9 @@ $('ring').onclick = ()=>{ settings.ring = !settings.ring; saveSettings(); render
 $('guide').onclick = ()=>{ settings.guide = !settings.guide; saveSettings(); renderToggles(); };
 $('sound').onclick = ()=>{ settings.sound = !settings.sound; saveSettings(); renderToggles(); };
 renderToggles();
-function startGame(m, list, seed){
+function startGame(m, list, seed, ser){
   gameSeed = seed || 1 + Math.floor(Math.random()*1e6);
+  series = ser ? JSON.parse(JSON.stringify(ser)) : {best:(m==='solo' || m==='practice') ? 1 : (settings.series || 1), wins:list.map(()=>0), game:1};
   mode = m; players = list.map((q,i)=>({name:q.name, cpu:q.cpu || null, color:q.color ?? i, rolls:[], left:null})); cur = 0; practiceStats = [];
   posX = 0.22*settings.hand; setBallColor(players[0].color);
   ['menu','setup','end','pause','how'].forEach(id=>$(id).classList.add('hidden'));
@@ -760,15 +777,16 @@ $('mPass').onclick = ()=>{ setupKind = 'pass'; renderSetup(); $('setup').classLi
 $('mCpu').onclick = ()=>{ setupKind = 'cpu'; renderSetup(); $('setup').classList.remove('hidden'); };
 let setupKind = 'pass';
 function renderSetup(){
+  setTimeout(()=>{ const el = document.getElementById('setupSeries'); if(el) seriesChips(el); }, 0);
   if(setupKind==='pass'){
     $('setupTitle').textContent = 'Pass & play';
     $('setupBody').innerHTML = `<div class="row">${[2,3,4].map(n=>`<button class="chip${n===setupN ? ' on' : ''}" data-n="${n}">${n} players</button>`).join('')}</div>` +
-      Array.from({length:setupN}, (_,i)=>`<input class="name" maxlength="12" data-i="${i}" value="${esc(settings.names[i] || 'Player ' + (i+1))}">`).join('');
+      Array.from({length:setupN}, (_,i)=>`<input class="name" maxlength="12" data-i="${i}" value="${esc(settings.names[i] || 'Player ' + (i+1))}">`).join('') + '<div class="row" id="setupSeries"></div>';
     document.querySelectorAll('[data-n]').forEach(b=>b.onclick = ()=>{ setupN = +b.dataset.n; renderSetup(); });
   } else {
     $('setupTitle').textContent = 'Versus CPU';
     $('setupBody').innerHTML = `<input class="name" maxlength="12" data-i="0" value="${esc(settings.names[0] || 'You')}"><p style="font-weight:600;margin-top:10px">Opponent</p>` +
-      CPUS.map((c,i)=>`<button class="chip${i===settings.cpu ? ' on' : ''}" data-c="${i}" style="display:block;width:100%;margin:5px 0">${c.name}<br><small>${['Learning the game · averages about 100','Steady league bowler · about 155','Hits the pocket most balls · about 200'][i]}</small></button>`).join('');
+      CPUS.map((c,i)=>`<button class="chip${i===settings.cpu ? ' on' : ''}" data-c="${i}" style="display:block;width:100%;margin:5px 0">${c.name}<br><small>${['Learning the game · averages about 100','Steady league bowler · about 155','Hits the pocket most balls · about 200'][i]}</small></button>`).join('') + '<div class="row" id="setupSeries"></div>';
     document.querySelectorAll('[data-c]').forEach(b=>b.onclick = ()=>{ settings.cpu = +b.dataset.c; saveSettings(); renderSetup(); });
   }
 }
@@ -791,15 +809,31 @@ function endGame(){
   const humanTop = Math.max(...players.filter(p=>!p.cpu).map(p=>E.scoreGame(p.rolls).total));
   const newBest = humanTop > best; if(newBest) try{ localStorage.setItem(BEST_KEY, humanTop); }catch(e){}
   const strikes = p=>{ let n = 0; E.scoreGame(p.rolls).frames.forEach(f=>{ n += (f.rolls || []).filter((v,k)=>v===10 && (k===0 || !f.tenth || f.rolls[k-1]===10 || (k===2 && f.rolls[0]+f.rolls[1]===10))).length; }); return n; };
-  $('endTitle').textContent = players.length > 1 ? (res[0].t===res[1].t ? "It's a tie!" : `${res[0].p.name} wins!`) : 'Game over';
+  const tie = players.length > 1 && res[0].t===res[1].t;
+  if(players.length > 1 && !tie && !series.counted){ series.wins[players.indexOf(res[0].p)]++; series.counted = true; }
+  const need = Math.floor(series.best/2) + 1, champ = players.findIndex((p,i)=>series.wins[i] >= need);
+  const seriesOn = series.best > 1, seriesDone = !seriesOn || champ >= 0;
+  $('endTitle').textContent = players.length > 1 ? (seriesOn && champ >= 0 ? `🏆 ${players[champ].name} wins the series!` : tie ? "It's a tie!" : `${res[0].p.name} wins${seriesOn ? ' game ' + series.game : ''}!`) : 'Game over';
   $('endBody').innerHTML = (players.length===1 ? `<div class="big">${res[0].t}</div>` : '') + (newBest ? '<p style="text-align:center;font-weight:700;color:#e08a00">🏆 New personal best!</p>' : best ? `<p style="text-align:center;opacity:.75">Best: ${best}</p>` : '') +
-    `<table class="sc">${res.map((r,i)=>`<tr><td>${i===0 && players.length > 1 ? '🏆' : ''}</td><td>${esc(r.p.name)}</td><td>${strikes(r.p)} X</td><td style="text-align:right;font-weight:700;font-size:16px">${r.t}</td></tr>`).join('')}</table>`;
+    `<table class="sc">${res.map((r,i)=>`<tr><td>${i===0 && players.length > 1 && !tie ? '🏆' : ''}</td><td>${esc(r.p.name)}</td><td>${strikes(r.p)} X</td><td style="text-align:right;font-weight:700;font-size:16px">${r.t}</td></tr>`).join('')}</table>` +
+    (seriesOn ? `<p style="text-align:center;margin:8px 0 2px;font-weight:600">Best of ${series.best} · games won</p><p style="text-align:center;margin:0;font-size:17px">${players.map((p,i)=>`${esc(p.name)} <b>${series.wins[i]}</b>`).join(' · ')}</p>` : '');
   $('end').classList.remove('hidden');
-  $('endAgain').classList.toggle('hidden', mode==='online');
+  const canStart = mode!=='online' || net.host;
+  $('endAgain').textContent = seriesDone ? (players.length > 1 ? '🔁 Rematch' : 'Play again') : `▶ Next game (${series.game + 1} of up to ${series.best})`;
+  $('endAgain').dataset.next = seriesDone ? '' : '1';
+  $('endAgain').classList.toggle('hidden', !canStart);
+  $('endWait').classList.toggle('hidden', canStart);
+  $('endWait').textContent = seriesDone ? 'Waiting for the host to start a rematch…' : 'Waiting for the host to start the next game…';
   recordGames().then(out=>{ const ranked = out.filter(e=>e.rank); if(ranked.length && !$('end').classList.contains('hidden')) $('endBody').insertAdjacentHTML('beforeend', ranked.map(e=>`<p style="text-align:center;font-weight:600;margin:4px 0">🌍 ${esc(e.name)}: ${e.rank===1 ? '<b>top of the world leaderboard!</b>' : 'number ' + e.rank + ' on the world leaderboard'}</p>`).join('')); }).catch(()=>{});
-  if(mode==='online'){ clearSession(); setTimeout(netClose, 1500); }
+  if(mode==='online') saveSession();
 }
-$('endAgain').onclick = ()=>{ $('end').classList.add('hidden'); startGame(mode, players.map(p=>({name:p.name, cpu:p.cpu, color:p.color}))); };
+$('endAgain').onclick = ()=>{
+  const next = !!$('endAgain').dataset.next, ser = next ? {best:series.best, wins:series.wins.slice(), game:series.game + 1} : null;
+  // a new game starts with whoever lost going first
+  $('end').classList.add('hidden');
+  if(mode==='online'){ const seed = 1 + Math.floor(Math.random()*1e6), s2 = ser || {best:series.best, wins:players.map(()=>0), game:1}; netSend({t:'start', lobby:net.lobby, seed, series:s2}); launchOnline(net.lobby, seed, s2); return; }
+  startGame(mode, players.map(p=>({name:p.name, cpu:p.cpu, color:p.color})), null, ser);
+};
 $('endMenu').onclick = ()=>{ $('end').classList.add('hidden'); toMenu(); };
 
 // ---- how to bowl ----
@@ -821,7 +855,7 @@ $('howNext').onclick = ()=>{ if(howI===HOW.length-1){ $('how').classList.add('hi
 const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
 const CODE_CH = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789', SESSION_KEY = 'strikenight-online';
 const net = {client:null, host:false, id:'', code:'', topic:'', broker:0, lobby:[], started:false, away:{}, seq:0};
-let pendingSync = [];
+let pendingSync = [], replayChecks = {n:0, bad:0};
 let myIdx = 0, remoteThrow = null, myThrowN = 0, netQueue = [], netResults = {};
 function newId(){ return Array.from({length:10}, ()=>'abcdefghijkmnopqrstuvwxyz23456789'[Math.floor(Math.random()*33)]).join(''); }
 function olStatus(t){ $('olStatus').textContent = t; }
@@ -851,6 +885,7 @@ function inviteURL(){ return location.origin + location.pathname + '?join=' + ne
 function renderLobby(){
   $('olPlayers').innerHTML = net.lobby.map((p,i)=>`<tr><td>🎳</td><td>${esc(p.name)}${i===0 ? ' (host)' : ''}${p.pid===net.id ? ' · you' : ''}</td></tr>`).join('');
   $('olGo').classList.toggle('hidden', !net.host); $('olWhatsApp').classList.toggle('hidden', !net.host); $('olMore').classList.toggle('hidden', !net.host);
+  $('olSeries').classList.toggle('hidden', !net.host); if(net.host) seriesChips($('olSeries'));
   $('olGo').disabled = net.lobby.length < 2; $('olGo').style.opacity = net.lobby.length < 2 ? 0.5 : 1;
 }
 async function hostGame(){
@@ -899,7 +934,7 @@ function onNet(m){
     return;
   }
   if(m.t==='back'){ if(net.away[m.from]){ delete net.away[m.from]; const i = net.lobby.findIndex(p=>p.pid===m.from); if(i >= 0) flash(`${esc(net.lobby[i].name)} is back`, 1.5); } return; }
-  if(m.t==='start'){ if(!net.started) launchOnline(m.lobby, m.seed); return; }
+  if(m.t==='start'){ if(!net.started || state==='over') launchOnline(m.lobby, m.seed, m.series); return; }
   if(m.t==='sync'){ if(m.to===net.id) applySync(m.snap); return; }
   if(!net.started) return;
   if(m.t==='left'){ const p = players[m.idx]; if(!p || p.gone) return; p.gone = true; flash(`${esc(p.name)} left the game`, 2); if(state==='remote' && cur===m.idx) startTurn(); return; }
@@ -917,17 +952,18 @@ function processNet(){
   state = 'approach'; camMode = 'approach'; approachT = 0;
   cpuPlan = Object.assign({}, m.p, {auto:true, remote:true, note:`${curP().name} bowls…`});
 }
-function launchOnline(lobby, seed){
+function launchOnline(lobby, seed, ser){
+  $('end').classList.add('hidden');
   net.started = true; net.lobby = lobby; myIdx = lobby.findIndex(p=>p.pid===net.id);
   $('online').classList.add('hidden'); keepAwake();
   netQueue = []; netResults = {}; net.seq = 0;
-  startGame('online', lobby.map(p=>({name:p.name})), seed);
+  startGame('online', lobby.map(p=>({name:p.name})), seed, ser || {best:1, wins:lobby.map(()=>0), game:1});
 }
-function makeSnap(){ return {lobby:net.lobby, seed:gameSeed, seq:net.seq, cur, rolls:players.map(p=>p.rolls), left:players.map(p=>p.left), gone:players.map(p=>!!p.gone), results:netResults}; }
+function makeSnap(){ return {series, over:state==='over', lobby:net.lobby, seed:gameSeed, seq:net.seq, cur, rolls:players.map(p=>p.rolls), left:players.map(p=>p.left), gone:players.map(p=>!!p.gone), results:netResults}; }
 function applySync(sn){
   if(!sn || !sn.lobby) return;
   net.lobby = sn.lobby; net.started = true; myIdx = sn.lobby.findIndex(p=>p.pid===net.id); netResults = sn.results || {};
-  mode = 'online'; gameSeed = sn.seed; players = sn.lobby.map((p,i)=>({name:p.name, cpu:null, color:i, rolls:sn.rolls[i] || [], left:sn.left[i] || null, gone:sn.gone[i]}));
+  mode = 'online'; gameSeed = sn.seed; if(sn.series) series = sn.series; players = sn.lobby.map((p,i)=>({name:p.name, cpu:null, color:i, rolls:sn.rolls[i] || [], left:sn.left[i] || null, gone:sn.gone[i]}));
   cur = sn.cur; net.seq = sn.seq; netQueue = []; remoteThrow = null;
   ['menu','online','setup','end','pause','how'].forEach(id=>$(id).classList.add('hidden'));
   flash('Back in the game', 1.4);
@@ -957,7 +993,7 @@ function openOnline(code, hint_){
 $('mOnline').onclick = ()=>openOnline('');
 $('olHost').onclick = hostGame;
 $('olJoin').onclick = ()=>joinGame('', net.hint);
-$('olGo').onclick = ()=>{ if(!net.host || net.lobby.length < 2) return; const seed = 1 + Math.floor(Math.random()*1e6); netSend({t:'start', lobby:net.lobby, seed}); launchOnline(net.lobby, seed); };
+$('olGo').onclick = ()=>{ if(!net.host || net.lobby.length < 2) return; const seed = 1 + Math.floor(Math.random()*1e6), ser = {best:settings.series || 1, wins:net.lobby.map(()=>0), game:1}; netSend({t:'start', lobby:net.lobby, seed, series:ser}); launchOnline(net.lobby, seed, ser); };
 $('olBack').onclick = ()=>{ clearSession(); netClose(); $('online').classList.add('hidden'); };
 $('olWhatsApp').onclick = ()=>{ const txt = `Come and bowl with me! 🎳\nTap to join my game: ${inviteURL()}\n(or open Online and type code ${net.code})`; window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank'); };
 $('olMore').onclick = async ()=>{ const url = inviteURL(); try{ if(navigator.share){ await navigator.share({title:'Strike Night', text:`Join my bowling game (code ${net.code}) 🎳`, url}); return; } }catch(e){ return; } try{ await navigator.clipboard.writeText(url); olStatus('Invite link copied'); }catch(e){ olStatus(url); } };
@@ -1026,7 +1062,7 @@ if(!/\/bowling\/?/.test(location.pathname)) $('mFrisbee').classList.add('hidden'
   if(sv && (!j || j.toUpperCase()===sv.code)) rejoin(sv);
   else if(j){ history.replaceState(null, '', location.pathname); openOnline(j.toUpperCase().slice(0,4), q.get('b')); } }
 frame();
-window.__dbg = ()=>({results:netResults, seq:net.seq, rt:remoteThrow && remoteThrow.n, q:netQueue.length, pend:pendingSync.length, done:world && world.done});
+window.__dbg = ()=>({checks:replayChecks, results:netResults, seq:net.seq, rt:remoteThrow && remoteThrow.n, q:netQueue.length, pend:pendingSync.length, done:world && world.done});
 window.__tp = {get state(){ return state; }, get world(){ return world; }, get players(){ return players; }, get cur(){ return cur; }, startGame, release, paramsFromSwipe, analyseSwipe, set approachT(v){ approachT = v; }, get mode(){ return mode; }};
 })();
 </script>

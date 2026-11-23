@@ -13,8 +13,8 @@ const fakeMqtt = { connect(url, opts){ const id = opts.clientId, h = {};
   const S = sessions[id] || (sessions[id] = {topics:new Set(), client:null, queue:[]});
   wire.push(()=>{ S.client = c; c.emit('connect'); const q = S.queue; S.queue = []; q.forEach(([t,d])=>c.emit('message', t, {toString:()=>d})); }); return c; } };
 function device(label, store0){
-  class FakeEl{ constructor(id){ this.id=id; this.h={}; this.style={}; this.innerHTML=''; this.textContent=''; this.value=''; const cl=new Set(['setup','how','end','pause','stats','skipBtn','online','board','olLobby'].includes(id)?['hidden']:[]); this.classList={add:c=>cl.add(c),remove:c=>cl.delete(c),toggle:(c,f)=>{ if(f===undefined?!cl.has(c):f) cl.add(c); else cl.delete(c); },contains:c=>cl.has(c)}; }
-    addEventListener(t,f){ (this.h[t]=this.h[t]||[]).push(f); } fire(t,e){ (this.h[t]||[]).forEach(f=>f(e||{})); if(this['on'+t]) this['on'+t](e||{}); } getContext(){ return stub(); } setPointerCapture(){} insertAdjacentHTML(w,h){ this.innerHTML += h; } }
+  class FakeEl{ constructor(id){ this.id=id; this.h={}; this.style={}; this.dataset={}; this.innerHTML=''; this.textContent=''; this.value=''; const cl=new Set(['setup','how','end','pause','stats','skipBtn','online','board','olLobby'].includes(id)?['hidden']:[]); this.classList={add:c=>cl.add(c),remove:c=>cl.delete(c),toggle:(c,f)=>{ if(f===undefined?!cl.has(c):f) cl.add(c); else cl.delete(c); },contains:c=>cl.has(c)}; }
+    querySelectorAll(){ return []; } addEventListener(t,f){ (this.h[t]=this.h[t]||[]).push(f); } fire(t,e){ (this.h[t]||[]).forEach(f=>f(e||{})); if(this['on'+t]) this['on'+t](e||{}); } getContext(){ return stub(); } setPointerCapture(){} insertAdjacentHTML(w,h){ this.innerHTML += h; } }
   const els = new Proxy({}, {get:(t,p)=>t[p]||(t[p]=new FakeEl(p))}), timers=[]; let now=0, raf=null; const store = store0 || {};
   const ctx = { THREE, console, Math, Date, JSON, Object, Array, String, Number, Set, Map, Proxy, Symbol, Promise, isNaN, Infinity, URLSearchParams, history:{replaceState(){}},
     document:{ getElementById:id=>els[id]||(els[id]=new FakeEl(id)), createElement:t=>new FakeEl(t), querySelectorAll:()=>[], addEventListener(){}, head:{appendChild(){}} },
@@ -24,7 +24,7 @@ function device(label, store0){
   ctx.window = ctx; vm.createContext(ctx); vm.runInContext(src, ctx);
   return {label, els, ctx, store, get T(){ return ctx.__tp; }, step(n=1){ for(let i=0;i<n;i++){ now+=1000/60; raf(); for(;;){ const k=timers.findIndex(o=>o.due<=now); if(k<0) break; timers.splice(k,1)[0].cb(); } } } };
 }
-const A = device('Andy'); let B = device('Sam');
+const A = device('Andy', {'strikenight-settings': JSON.stringify({series:3})}); let B = device('Sam');
 const tick = ()=>new Promise(r=>setImmediate(r));
 async function settle(n=10){ for(let i=0;i<n;i++){ let k=0; while(wire.length && k++<1000) wire.shift()(); A.step(1); B.step(1); await tick(); } }
 function swipe(D, bend=0){ const c = D.els.c, x=195, y=844*0.35; c.fire('pointerdown',{clientX:x,clientY:y,pointerId:1});
@@ -39,11 +39,17 @@ function swipe(D, bend=0){ const c = D.els.c, x=195, y=844*0.35; c.fire('pointer
   A.els.olGo.fire('click'); await settle(10);
   console.log('started:', A.T.mode, B.T.mode, 'A state', A.T.state, 'B state', B.T.state);
   let guard = 0;
-  while(guard++ < 300 && !(A.T.state==='over' && B.T.state==='over')){
-    if(guard===12){ console.log('-- Sam refreshes the page --', 'rolls before', B.T.players.map(p=>p.rolls.length)); B = device('Sam', B.store); for(let w=0;w<6;w++){ await settle(60); console.log('   t+',w, 'B:', B.T.mode, B.T.state, '| A:', A.T.state, A.T.cur, JSON.stringify(A.ctx.__dbg())); } console.log('   Sam after sync:', B.T.mode, B.T.state, B.T.players.map(p=>p.rolls.length), '| A:', A.T.state, A.T.cur, JSON.stringify(A.ctx.__dbg && A.ctx.__dbg())); }
+  let games = 0;
+  while(guard++ < 900){
+    if(A.T.state==='over' && B.T.state==='over'){
+      games++; console.log('game', games, 'A end:', A.els.endTitle.textContent, '|', A.els.endBody.innerHTML.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').slice(-60), '| host button:', A.els.endAgain.textContent, '| B waits:', B.els.endWait.textContent);
+      if(!A.els.endAgain.dataset.next || games >= 4) break;
+      A.els.endAgain.fire('click'); await settle(20); console.log('   next game started:', A.T.state, B.T.state); continue; }
+    if(guard===12 && games===0){ console.log('-- Sam refreshes the page --', 'rolls before', B.T.players.map(p=>p.rolls.length)); B = device('Sam', B.store); for(let w=0;w<6;w++){ await settle(60); console.log('   t+',w, 'B:', B.T.mode, B.T.state, '| A:', A.T.state, A.T.cur, JSON.stringify(A.ctx.__dbg())); } console.log('   Sam after sync:', B.T.mode, B.T.state, B.T.players.map(p=>p.rolls.length), '| A:', A.T.state, A.T.cur, JSON.stringify(A.ctx.__dbg && A.ctx.__dbg())); }
     for(const D of [A, B]) if(D.T.state==='aim'){ swipe(D, guard%2); }
     await settle(120);
   }
   for(const D of [A, B]) console.log(D.label, 'sees:', D.T.players.map(p=>p.name + ' ' + p.rolls.join(',') + ' = ' + require('../src/engine.js').scoreGame(p.rolls).total).join(' | '));
+  console.log('replay checks A', JSON.stringify(A.ctx.__dbg().checks), 'B', JSON.stringify(B.ctx.__dbg().checks));
   console.log('end titles:', A.els.endTitle.textContent, '|', B.els.endTitle.textContent, 'loops', guard);
 })();

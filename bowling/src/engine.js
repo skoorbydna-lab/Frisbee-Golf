@@ -20,6 +20,8 @@ function pinSpots(){
   return out;
 }
 const SPOTS = pinSpots();
+function hyp2(a, b){ return Math.sqrt(a*a + b*b); }
+function hyp3(a, b, c){ return Math.sqrt(a*a + b*b + c*c); }
 // seeded randomness so every phone in an online game spots the rack the same way
 let seedS = 1;
 function setSeed(n){ seedS = (Math.floor(n) % 2147483646) + 1; }
@@ -28,6 +30,7 @@ function rand(){ seedS = seedS*16807 % 2147483647; return (seedS - 1)/2147483646
 // release: x position at the foul line, angle (rad, + = towards the right), speed m/s,
 // revs (rad/s), axis (rad: + = hooks left for this sign convention), mass kg
 function newBall(o){
+  if(o.init){ const I = o.init; return {x:I[0], z:-0.3, y:BALL_R, vx:I[1], vz:I[2], wx:I[3], wy:I[4], wz:I[5], m:7.2, gutter:0, gone:false, t:0, hitPins:false, entry:null, path:[], rolling:false, rollZ:null, hookZ:null, maxDx:0, startX:I[0], v0:hyp2(I[1], I[2])}; }
   const th = o.angle || 0, V = o.speed, W = o.revs || 0, a = o.axis || 0;
   const dx = Math.sin(th), dz = -Math.cos(th);
   const rx = dz, rz = -dx;                // roll axis direction for travel along (dx, dz)
@@ -51,7 +54,7 @@ function stepBall(b, dt, ev){
   const R = BALL_R, I = 0.4*b.m*R*R;
   const mu = frictionAt(b.z);
   // slip of the contact point: v + w × r, r = (0, -R, 0)
-  const ux = b.vx + b.wz*R, uz = b.vz - b.wx*R, us = Math.hypot(ux, uz);
+  const ux = b.vx + b.wz*R, uz = b.vz - b.wx*R, us = hyp2(ux, uz);
   const dvMax = mu*G*dt;
   if(us > 1e-4){
     // would friction overshoot pure rolling this step? then settle exactly into roll (angular momentum about contact conserved)
@@ -71,7 +74,7 @@ function stepBall(b, dt, ev){
     }
   }
   // rolling resistance, small
-  const sp = Math.hypot(b.vx, b.vz);
+  const sp = hyp2(b.vx, b.vz);
   if(sp > 0){ const d = Math.min(sp, 0.012*G*dt*(b.rolling ? 1 : 0.5)); b.vx -= b.vx/sp*d; b.vz -= b.vz/sp*d; if(b.rolling){ b.wz = -b.vx/R; b.wx = b.vz/R; } }
   b.x += b.vx*dt; b.z += b.vz*dt;
   if(Math.abs(b.x) > LANE.half && -b.z < LANE.len - 0.3){ b.gutter = Math.sign(b.x); ev.push('gutter'); }
@@ -85,7 +88,7 @@ function stepBall(b, dt, ev){
 // sequential impulses (normal + friction), so pins wobble, topple, fly, bounce and roll properly.
 const PIN_M = 1.53, PIN_COM = 0.145;
 const PIN_SPH = [[0.035,0.034],[0.085,0.054],[0.135,0.0605],[0.185,0.05],[0.235,0.033],[0.29,0.026],[0.34,0.029]].map(([y,r])=>({y:y - PIN_COM, r}));
-const PIN_RIM = []; for(let k=0;k<8;k++){ const a = k/8*Math.PI*2; PIN_RIM.push([Math.cos(a)*0.026, -PIN_COM, Math.sin(a)*0.026]); }
+const R2 = 0.7071067811865476, PIN_RIM = [[1,0],[R2,R2],[0,1],[-R2,R2],[-1,0],[-R2,-R2],[0,-1],[R2,-R2]].map(([c,sn])=>[c*0.026, -PIN_COM, sn*0.026]);
 const PIN_I = [0.0193, 0.0016, 0.0193];      // body-frame inertia (x, y = long axis, z)
 const BALL_M = 7.2, BALL_I = 0.4*BALL_M*BALL_R*BALL_R;
 
@@ -95,7 +98,7 @@ function qRot(q, v){ // rotate vector v by quaternion q=[x,y,z,w]
   return [ix*w + iw*-x + iy*-z - iz*-y, iy*w + iw*-y + iz*-x - ix*-z, iz*w + iw*-z + ix*-y - iy*-x];
 }
 function qInv(q){ return [-q[0], -q[1], -q[2], q[3]]; }
-function qNorm(q){ const l = Math.hypot(q[0],q[1],q[2],q[3]) || 1; q[0]/=l; q[1]/=l; q[2]/=l; q[3]/=l; }
+function qNorm(q){ const l = Math.sqrt(q[0]*q[0]+q[1]*q[1]+q[2]*q[2]+q[3]*q[3]) || 1; q[0]/=l; q[1]/=l; q[2]/=l; q[3]/=l; }
 function cross(a, b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
 function dot(a, b){ return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
 function invI(body, v){ // world inverse inertia × v
@@ -104,7 +107,7 @@ function invI(body, v){ // world inverse inertia × v
 }
 function makePinBody(s){
   const jx = (rand() - 0.5)*0.008, jz = (rand() - 0.5)*0.008;      // no machine spots a rack perfectly
-  return {id:s.id, x:s.x + jx, z:s.z + jz, c:[s.x + jx, PIN_COM, s.z + jz], q:(()=>{ const a = (rand() - 0.5)*1.0; return [0, Math.sin(a/2), 0, Math.cos(a/2)]; })(), v:[0,0,0], w:[0,0,0], state:'up', y:0, vx:0, vz:0, tilt:0, tdir:0, sleep:0, hit:false};
+  return {id:s.id, x:s.x + jx, z:s.z + jz, c:[s.x + jx, PIN_COM, s.z + jz], q:(()=>{ const q = [0, (rand() - 0.5)*0.5, 0, 1]; qNorm(q); return q; })(), v:[0,0,0], w:[0,0,0], state:'up', y:0, vx:0, vz:0, tilt:0, tdir:0, sleep:0, hit:false};
 }
 function newRack(standing){ return SPOTS.filter(s=>!standing || standing.includes(s.id)).map(makePinBody); }
 function pinAxis(p){ return qRot(p.q, [0,1,0]); }
@@ -134,8 +137,8 @@ function collectContacts(w){
     const a = P[i], b = P[j]; if(Math.abs(a.c[0]-b.c[0]) > 0.5 || Math.abs(a.c[2]-b.c[2]) > 0.5 || Math.abs(a.c[1]-b.c[1]) > 0.5) continue;
     let best = null;
     for(const s1 of a._sph) for(const s2 of b._sph){
-      const dx = s1[0]-s2[0], dy = s1[1]-s2[1], dz = s1[2]-s2[2], d = Math.hypot(dx,dy,dz), pen = (s1[3] + s2[3])*1.06 - d;
-      if(pen > 0 && d > 1e-6){ const ny = Math.max(-0.5, Math.min(0.5, dy/d)), nl = Math.hypot(dx/d, ny, dz/d), n = [dx/d/nl, ny/nl, dz/d/nl]; addContact(C, a, b, n, [s2[0] + n[0]*s2[3], s2[1] + n[1]*s2[3], s2[2] + n[2]*s2[3]], pen, 0.62, 0.12); }
+      const dx = s1[0]-s2[0], dy = s1[1]-s2[1], dz = s1[2]-s2[2], d = hyp3(dx,dy,dz), pen = (s1[3] + s2[3])*1.06 - d;
+      if(pen > 0 && d > 1e-6){ const ny = Math.max(-0.5, Math.min(0.5, dy/d)), nl = hyp3(dx/d, ny, dz/d), n = [dx/d/nl, ny/nl, dz/d/nl]; addContact(C, a, b, n, [s2[0] + n[0]*s2[3], s2[1] + n[1]*s2[3], s2[2] + n[2]*s2[3]], pen, 0.62, 0.12); }
     }
   }
   // ball against pins
@@ -143,10 +146,10 @@ function collectContacts(w){
   if(bl && !bl.gone && !bl.gutter && -bl.z > LANE.len - 0.5){
     const bc = [bl.x, BALL_R, bl.z];
     for(const p of P) for(const sp of p._sph){
-      const dx = bc[0]-sp[0], dy = bc[1]-sp[1], dz = bc[2]-sp[2], d = Math.hypot(dx,dy,dz), pen = BALL_R + sp[3] - d;
+      const dx = bc[0]-sp[0], dy = bc[1]-sp[1], dz = bc[2]-sp[2], d = hyp3(dx,dy,dz), pen = BALL_R + sp[3] - d;
       if(pen > 0 && d > 1e-6){
         if(!bl.hitPins){ bl.hitPins = true; bl.entry = {x:bl.x, ang:Math.atan2(bl.vx, -bl.vz), pin:p.id}; w.events.push('strikehit'); }
-        const hl = Math.hypot(dx, dz) || 1e-6, n = [dx/hl, 0, dz/hl], cy = Math.max(sp[1] - sp[3]*0.7, Math.min(sp[1] + sp[3]*0.7, BALL_R));
+        const hl = hyp2(dx, dz) || 1e-6, n = [dx/hl, 0, dz/hl], cy = Math.max(sp[1] - sp[3]*0.7, Math.min(sp[1] + sp[3]*0.7, BALL_R));
         addContact(C, w._ballBody, p, n, [sp[0] + n[0]*sp[3], cy, sp[2] + n[2]*sp[3]], pen, 0.72, 0.04);
       }
     }
@@ -168,7 +171,7 @@ function solve(C, h){
     const vn = (va[0]-vb[0])*c.n[0] + (va[1]-vb[1])*c.n[1] + (va[2]-vb[2])*c.n[2];
     c.bias = (vn < -0.4 ? -c.e*vn : 0) + Math.min(0.3, 0.08*Math.max(0, c.pen - 0.001)/h);
     // tangent directions
-    const t1 = Math.abs(c.n[1]) < 0.9 ? cross(c.n, [0,1,0]) : cross(c.n, [1,0,0]); const l1 = Math.hypot(...t1); c.t1 = t1.map(v=>v/l1); c.t2 = cross(c.n, c.t1);
+    const t1 = Math.abs(c.n[1]) < 0.9 ? cross(c.n, [0,1,0]) : cross(c.n, [1,0,0]); const l1 = hyp3(t1[0], t1[1], t1[2]); c.t1 = t1.map(v=>v/l1); c.t2 = cross(c.n, c.t1);
     c.k1 = 1/(effMass(c.a, c.ra, c.t1) + (c.b ? effMass(c.b, c.rb, c.t1) : 0)); c.k2 = 1/(effMass(c.a, c.ra, c.t2) + (c.b ? effMass(c.b, c.rb, c.t2) : 0));
   }
   for(let it=0; it<8; it++){
@@ -203,10 +206,10 @@ function stepPins(w, h){
   if(bl && w._ballBody){ const B = w._ballBody; bl.vx = B.v[0]; bl.vz = B.v[2]; }
   for(const p of P){
     if(p.state==='gone') continue;
-    const sp = Math.hypot(...p.v) + Math.hypot(...p.w)*0.1;
+    const sp = hyp3(p.v[0], p.v[1], p.v[2]) + hyp3(p.w[0], p.w[1], p.w[2])*0.1;
     if(sp < 0.02 && p.state==='up'){ p.sleep++; if(p.sleep > 30){ p.v = [0,0,0]; p.w = [0,0,0]; continue; } } else p.sleep = 0;
     if(p.v[1] > 0.8) p.v[1] = 0.8;
-    { const wm = Math.hypot(...p.w); if(wm > 22){ const k = 22/wm; p.w[0] *= k; p.w[1] *= k; p.w[2] *= k; } }
+    { const wm = hyp3(p.w[0], p.w[1], p.w[2]); if(wm > 22){ const k = 22/wm; p.w[0] *= k; p.w[1] *= k; p.w[2] *= k; } }
     if(p.c[1] > 0.3 && p.v[1] > 0) p.v[1] = 0;
     p.c[0] += p.v[0]*h; p.c[1] += p.v[1]*h; p.c[2] += p.v[2]*h;
     const [wx,wy,wz] = p.w, q = p.q; // q += 0.5 * (0,w) * q * h
@@ -227,17 +230,22 @@ function stepPins(w, h){
 }
 
 function newWorld(standing){ return {ball:null, pins:newRack(standing), t:0, events:[], done:false, settle:0}; }
+const FIXED = 1/120;
 function step(w, dt){
-  const sub = Math.max(1, Math.round(dt*480)), h = dt/sub;
+  w.acc = (w.acc || 0) + dt;
+  while(w.acc >= FIXED - 1e-9 && !w.done){ w.acc -= FIXED; fixedStep(w); }
+}
+function fixedStep(w){
+  const sub = 4, h = FIXED/sub;
   for(let i=0;i<sub;i++){
     if(w.ball){ stepBall(w.ball, h, w.events); if(w.ball.path.length < 2000 && (w.ball.path.length===0 || Math.abs(w.ball.path[w.ball.path.length-1][1] - w.ball.z) > 0.15)) w.ball.path.push([w.ball.x, w.ball.z]); }
     stepPins(w, h);
     w.t += h;
   }
-  const moving = w.pins.some(p=>p.state!=='gone' && (Math.hypot(...p.v) > 0.04 || Math.hypot(...p.w) > 0.4));
+  const moving = w.pins.some(p=>p.state!=='gone' && (hyp3(p.v[0], p.v[1], p.v[2]) > 0.04 || hyp3(p.w[0], p.w[1], p.w[2]) > 0.4));
   const ballDone = !w.ball || w.ball.gone;
-  w.settle = ballDone && !moving ? w.settle + dt : 0;
-  if(ballDone) w.goneT = (w.goneT || 0) + dt;
+  w.settle = ballDone && !moving ? w.settle + FIXED : 0;
+  if(ballDone) w.goneT = (w.goneT || 0) + FIXED;
   if(w.settle > 0.5 || w.goneT > 3.5 || w.t > 12) w.done = true;
 }
 // a pin counts as standing if it's upright on the deck
