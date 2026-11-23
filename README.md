@@ -1,5 +1,7 @@
 # Frisbee Golf 🥏
 
+*Also in this repo: **[Strike Night Bowling](https://skoorbydna-lab.github.io/Frisbee-Golf/bowling/)** 🎳, see below.*
+
 A first-person 3D disc golf game for phones, built with three.js.
 
 **Play:** https://skoorbydna-lab.github.io/Frisbee-Golf/
@@ -42,3 +44,12 @@ Each themed course weaves the six hand-built holes of its type in with twelve ge
 - `src/game.html` – graphics, controls, menus, multiplayer.
 - `build.py` – rebuilds `index.html` from `src/`.
 - `tests/` – Node tests (golf: `golf_test.js`, `motion_test.js`, `editor_test.js`): a bot plays every hole (`holes_bot.js`), round types (`rounds_test.js`), the range, and a two-phone online game with refreshes (`online_test.js`).
+
+
+## Strike Night Bowling 🎳
+Ten-pin bowling in the same style, in [`bowling/`](bowling/). **Play:** https://skoorbydna-lab.github.io/Frisbee-Golf/bowling/
+- **Bowl:** drag sideways to line up, then touch, **pull down** (backswing) and **swing up** the lane. Let go as the timing ring closes. The swing's direction sets the line (a yellow marker shows the board at the arrows), backswing + swing speed set the pace, and bending the swing adds hook.
+- **Physics:** the ball skids on the oiled front of the lane, hooks on the dry back end and rolls; the pins are real 3D rigid bodies (they wobble, trip, slide into the pit and take each other out).
+- **Modes:** Play, Versus CPU (Rookie Rita, Club Carl, Pro Priya), Pass & play (2–4), Online (2–4 phones, same MQTT relay and WhatsApp invites as disc golf, rejoins after a refresh), Practice lane with speed, revs, hook and entry angle.
+- **Leaderboard:** best games on this phone and a shared world board (Firebase collection `sn_games`; personal bests only).
+- Build: `cd bowling && python3 build.py` (inlines `src/engine.js` into `src/game.html` → `index.html`). Tests: `node tests/score.js`, `node tests/game_test.js`, `node tests/online_test.js` (after building and extracting the scripts as in the root project).
